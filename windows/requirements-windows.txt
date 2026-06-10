@@ -1,0 +1,10 @@
+# Windows-specific dependencies for POS System
+# Install AFTER requirements.txt:
+#   pip install -r requirements.txt
+#   pip install -r windows/requirements-windows.txt
+
+# Serial port detection for thermal printer (COM ports)
+pyserial>=3.5
+
+# USB access for printer (alternative to serial)
+pyusb>=1.2

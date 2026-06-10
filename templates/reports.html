@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}Тайлан{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+var CATEGORY_ICONS = {
+    'Сүүн бүтээгдэхүүн': '🥛', 'Талх нарийн боов': '🍞', 'Өндөг': '🥚',
+    'Будаа': '🍚', 'Гоймон': '🍜', 'Тос': '🛢️', 'Чихэр': '🍬',
+    'Давс амтлагч': '🧂', 'Жимс': '🍎', 'Ус ундаа': '🥤', 'Бусад': '📦'
+};
+var CATEGORY_COLORS = {
+    'Сүүн бүтээгдэхүүн': '#3B82F6', 'Талх нарийн боов': '#F59E0B', 'Өндөг': '#EAB308',
+    'Будаа': '#22C55E', 'Гоймон': '#EF4444', 'Тос': '#A855F7', 'Чихэр': '#06B6D4',
+    'Давс амтлагч': '#78716C', 'Жимс': '#84CC16', 'Ус ундаа': '#0EA5E9', 'Бусад': '#6B7280'
+};
+
+function setQuickFilter(type) {
+    var today = new Date();
+    var dateFrom, dateTo;
+    dateTo = today.toISOString().split('T')[0];
+
+    if (type === 'today') {
+        dateFrom = dateTo;
+    } else if (type === 'week') {
+        var weekStart = new Date(today);
+        weekStart.setDate(today.getDate() - today.getDay() + 1);
+        dateFrom = weekStart.toISOString().split('T')[0];
+    } else if (type === 'month') {
+        dateFrom = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-01';
+    }
+
+    var fromInput = document.querySelector('input[name="date_from"]');
+    var toInput = document.querySelector('input[name="date_to"]');
+    if (fromInput) fromInput.value = dateFrom;
+    if (toInput) toInput.value = dateTo;
+
+    document.querySelectorAll('.quick-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+    event.target.classList.add('active');
+    document.getElementById('reportForm').submit();
+}
+
+function exportCSV() {
+    var from = document.querySelector('input[name="date_from"]');
+    var to = document.querySelector('input[name="date_to"]');
+    var params = [];
+    if (from && from.value) params.push('date_from=' + encodeURIComponent(from.value));
+    if (to && to.value) params.push('date_to=' + encodeURIComponent(to.value));
+    var url = '/reports/export' + (params.length ? '?' + params.join('&') : '');
+    window.open(url, '_blank');
+}
+</script>
+<style>
+.chart-row { display:flex; gap:16px; flex-wrap:wrap; margin-top:16px; }
+.chart-box { flex:1; min-width:320px; background:var(--surface); border-radius:var(--radius-xl); padding:20px; border:1px solid var(--border); }
+.chart-box h3 { margin:0 0 12px; font-size:1rem; font-weight:700; color:var(--text); }
+.chart-box canvas { max-height:260px; }
+.insight-cards { display:flex; gap:12px; flex-wrap:wrap; margin-top:16px; }
+.insight-card { flex:1; min-width:150px; padding:16px 20px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-xl); text-align:center; }
+.insight-card .value { font-size:1.6rem; font-weight:900; color:var(--primary); }
+.insight-card .label { font-size:0.82rem; color:var(--text-muted); margin-top:4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">📈 Борлуулалтын тайлан</h1>
+    <div class="page-actions">
+        <button class="btn btn-primary" onclick="exportCSV()">📥 CSV Экспорт</button>
+    </div>
+</div>
+
+<div class="filter-bar" style="margin-bottom:12px;">
+    <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+        <button class="quick-filter-btn" onclick="setQuickFilter('today')">📅 Өнөөдөр</button>
+        <button class="quick-filter-btn" onclick="setQuickFilter('week')">📅 Энэ долоо хоног</button>
+        <button class="quick-filter-btn" onclick="setQuickFilter('month')">📅 Энэ сар</button>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form id="reportForm" method="GET" action="{{ url_for('reports_page') }}" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <input type="date" name="date_from" value="{{ date_from }}" class="form-control" style="width:auto;">
+        <span>—</span>
+        <input type="date" name="date_to" value="{{ date_to }}" class="form-control" style="width:auto;">
+        <button type="submit" class="btn btn-primary btn-sm">Хайх</button>
+        {% if date_from or date_to %}
+        <a href="{{ url_for('reports_page') }}" class="btn btn-secondary btn-sm">Цэвэрлэх</a>
+        {% endif %}
+    </form>
+</div>
+
+<div class="report-cards-row">
+    <div class="stat-card">
+        <span class="stat-card-icon">🧾</span>
+        <div class="stat-value">{{ report.summary.total_sales or 0 }}</div>
+        <div class="stat-label">Нийт борлуулалт</div>
+    </div>
+    <div class="stat-card">
+        <span class="stat-card-icon">💰</span>
+        <div class="stat-value">{{ "{:,.0f}".format(report.summary.total_revenue or 0) }}₮</div>
+        <div class="stat-label">Цэвэр орлого</div>
+    </div>
+    <div class="stat-card">
+        <span class="stat-card-icon">💵</span>
+        <div class="stat-value">{{ "{:,.0f}".format(report.summary.cash_total or 0) }}₮</div>
+        <div class="stat-label">Бэлэн</div>
+    </div>
+    <div class="stat-card">
+        <span class="stat-card-icon">💳</span>
+        <div class="stat-value">{{ "{:,.0f}".format(report.summary.card_total or 0) }}₮</div>
+        <div class="stat-label">Карт</div>
+    </div>
+    <div class="stat-card">
+        <span class="stat-card-icon">🔀</span>
+        <div class="stat-value">{{ "{:,.0f}".format(report.summary.split_total or 0) }}₮</div>
+        <div class="stat-label">Холимог</div>
+    </div>
+    {% if profit %}
+    <div class="stat-card" style="border:2px solid var(--success);">
+        <span class="stat-card-icon">📈</span>
+        <div class="stat-value" style="color:var(--success);">{{ "{:,.0f}".format(profit.profit) }}₮</div>
+        <div class="stat-label">Цэвэр ашиг ({{ profit.margin }}%)</div>
+    </div>
+    <div class="stat-card">
+        <span class="stat-card-icon">📦</span>
+        <div class="stat-value">{{ "{:,.0f}".format(profit.total_cost) }}₮</div>
+        <div class="stat-label">Нийт өртөг</div>
+    </div>
+    {% endif %}
+    {% if report.summary.return_total %}
+    <div class="stat-card" style="border-left: 3px solid var(--error);">
+        <span class="stat-card-icon">↩️</span>
+        <div class="stat-value" style="color: var(--error);">{{ "{:,.0f}".format(report.summary.return_total or 0) }}₮</div>
+        <div class="stat-label">Буцаалт ({{ report.summary.return_count or 0 }})</div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="insight-cards">
+    <div class="insight-card">
+        <div class="value">{{ "{:,.0f}".format(report.avg_transaction or 0) }}₮</div>
+        <div class="label">Дундаж гүйлгээний дүн</div>
+    </div>
+    <div class="insight-card">
+        <div class="value">{{ report.avg_items_per_sale or 0 }}</div>
+        <div class="label">Дундаж барааны тоо</div>
+    </div>
+</div>
+
+<!-- Charts Row -->
+<div class="chart-row">
+    <div class="chart-box">
+        <h3>📅 Өдрийн орлого</h3>
+        <canvas id="dailyChart"></canvas>
+    </div>
+    <div class="chart-box">
+        <h3>🕐 Цагийн задаргаа</h3>
+        <canvas id="hourlyChart"></canvas>
+    </div>
+</div>
+
+<div class="chart-row">
+    <div class="chart-box">
+        <h3>💳 Төлбөрийн төрөл</h3>
+        <canvas id="paymentChart"></canvas>
+    </div>
+    <div class="chart-box">
+        <h3>📂 Ангилалын орлого</h3>
+        <canvas id="categoryChart"></canvas>
+    </div>
+</div>
+
+<!-- Existing tables -->
+<div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:16px;">
+    <div class="card" style="flex:1; min-width:350px;">
+        <h3 class="card-title">🏆 Хамгийн их зарагдсан бараа</h3>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>Бараа</th>
+                        <th class="text-right">Тоо</th>
+                        <th class="text-right">Орлого (₮)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in report.top_products %}
+                    <tr>
+                        <td style="text-align:center; font-size:1.2rem;">{{ CATEGORY_ICONS.get(p.category if p.category else 'Бусад', '📦') }}</td>
+                        <td>{{ p.product_name }}</td>
+                        <td class="text-right">{{ p.total_qty }}</td>
+                        <td class="text-right text-bold">{{ "{:,.0f}".format(p.total_revenue) }} ₮</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not report.top_products %}
+                    <tr><td colspan="4" class="text-center text-muted" style="padding:24px;">Мэдээлэл байхгүй</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card" style="flex:1; min-width:350px;">
+        <h3 class="card-title">📅 Өдрийн задаргаа</h3>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Огноо</th>
+                        <th class="text-right">Тоо</th>
+                        <th class="text-right">Дүн (₮)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in report.daily %}
+                    <tr>
+                        <td>{{ d.sale_date }}</td>
+                        <td class="text-right">{{ d.count }}</td>
+                        <td class="text-right text-bold">{{ "{:,.0f}".format(d.daily_total) }} ₮</td>
+                    </tr>
+                    {% endfor %}
+                    {% if not report.daily %}
+                    <tr><td colspan="3" class="text-center text-muted" style="padding:24px;">Мэдээлэл байхгүй</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+var dailyData = {{ report.daily | tojson | safe }};
+var hourlyData = {{ report.hourly | tojson | safe }};
+var categoryBreakdown = {{ report.category_breakdown | tojson | safe }};
+
+Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#94a3b8';
+Chart.defaults.font.family = "'Inter', -apple-system, sans-serif";
+var chartFontSize = window.innerWidth < 768 ? 10 : 12;
+
+function buildCharts(data) {
+    /* Daily Revenue Line Chart */
+    var dc = document.getElementById('dailyChart');
+    if (dc) {
+        var dates = (data.daily || []).map(function(d) { return d.sale_date; }).reverse();
+        var values = (data.daily || []).map(function(d) { return d.daily_total; }).reverse();
+        new Chart(dc, {
+            type: 'line',
+            data: {
+                labels: dates,
+                datasets: [{
+                    label: 'Орлого (₮)',
+                    data: values,
+                    borderColor: '#22C55E',
+                    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                    fill: true, tension: 0.3,
+                    pointRadius: 3, pointHoverRadius: 6, borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 7, maxRotation: 0, font: { size: chartFontSize } } },
+                    y: { beginAtZero: true, ticks: { font: { size: chartFontSize }, callback: function(v) { return v >= 1000000 ? (v/1000000).toFixed(1)+'М' : v >= 1000 ? (v/1000).toFixed(0)+'К' : v; } } }
+                }
+            }
+        });
+    }
+
+    /* Hourly Bar Chart */
+    var hc = document.getElementById('hourlyChart');
+    if (hc && data.hourly) {
+        new Chart(hc, {
+            type: 'bar',
+            data: {
+                labels: data.hourly.map(function(d) { return d.hour; }),
+                datasets: [{
+                    label: 'Борлуулалт',
+                    data: data.hourly.map(function(d) { return d.count; }),
+                    backgroundColor: '#3B82F6', borderRadius: 4, borderSkipped: false
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { maxTicksLimit: 12, maxRotation: 0, font: { size: chartFontSize } } },
+                    y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: chartFontSize } } }
+                }
+            }
+        });
+    }
+
+    /* Payment Type Doughnut Chart */
+    var pc = document.getElementById('paymentChart');
+    if (pc && data.summary) {
+        new Chart(pc, {
+            type: 'doughnut',
+            data: {
+                labels: ['💵 Бэлэн', '💳 Карт', '🔀 Холимог', '↩️ Буцаалт'],
+                datasets: [{
+                    data: [data.summary.cash_total || 0, data.summary.card_total || 0, data.summary.split_total || 0, data.summary.return_total || 0],
+                    backgroundColor: ['#22C55E', '#3B82F6', '#A855F7', '#EF4444'],
+                    borderWidth: 2, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#1e293b'
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { padding: 12, boxWidth: 12, font: { size: chartFontSize } } },
+                    tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + Number(ctx.raw).toLocaleString() + ' ₮'; } } }
+                },
+                cutout: '60%'
+            }
+        });
+    }
+
+    /* Category Breakdown Doughnut Chart */
+    var cc = document.getElementById('categoryChart');
+    if (cc && data.category_breakdown) {
+        var cats = data.category_breakdown;
+        new Chart(cc, {
+            type: 'doughnut',
+            data: {
+                labels: cats.map(function(c) { return (CATEGORY_ICONS[c.category] || '📦') + ' ' + c.category; }),
+                datasets: [{
+                    data: cats.map(function(c) { return c.total_revenue; }),
+                    backgroundColor: cats.map(function(c) { return CATEGORY_COLORS[c.category] || '#6B7280'; }),
+                    borderWidth: 2, borderColor: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#1e293b'
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { padding: 10, boxWidth: 12, font: { size: chartFontSize } } },
+                    tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + Number(ctx.raw).toLocaleString() + ' ₮'; } } }
+                },
+                cutout: '55%'
+            }
+        });
+    }
+}
+
+/* Build charts from server data first */
+buildCharts({ daily: dailyData, hourly: hourlyData, summary: {{ report.summary | tojson | safe }}, category_breakdown: categoryBreakdown });
+
+/* Then reload from API for fresh data */
+var params = new URLSearchParams(window.location.search);
+fetch('/api/reports/chart-data?' + params.toString())
+    .then(function(r) { return r.json(); })
+    .then(function(data) { buildCharts(data); })
+    .catch(function() {});
+</script>
+{% endblock %}

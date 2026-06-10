@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}Нөөц удирдлага{% endblock %}
+
+{% block head %}
+<script>
+var CATEGORY_ICONS = {
+    'Сүүн бүтээгдэхүүн': '🥛',
+    'Талх нарийн боов': '🍞',
+    'Өндөг': '🥚',
+    'Будаа': '🍚',
+    'Гоймон': '🍜',
+    'Тос': '🛢️',
+    'Чихэр': '🍬',
+    'Давс амтлагч': '🧂',
+    'Жимс': '🍎',
+    'Ус ундаа': '🥤',
+    'Бусад': '📦'
+};
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">📊 Нөөц удирдлага</h1>
+    <button class="btn btn-primary" onclick="openModal('adjustModal')">± Нөөц тохируулах</button>
+</div>
+
+{% if low_stock %}
+<div class="card" style="border-left:4px solid #FF9800;">
+    <h3 class="card-title" style="color:#FF9800;">⚠ Бага нөөцтэй бараа ({{ low_stock|length }})</h3>
+    <div class="low-stock-alert">
+        {% for p in low_stock %}
+        <div class="low-stock-item {% if p.stock_qty == 0 %}out-of-stock{% endif %}">
+            <span class="low-stock-icon">{{ CATEGORY_ICONS.get(p.category, '📦') }}</span>
+            <div class="low-stock-info">
+                <div class="low-stock-name">{{ p.name }}</div>
+                <div class="low-stock-qty">
+                    Нөөц: <strong class="{% if p.stock_qty == 0 %}text-danger{% else %}text-warning{% endif %}">{{ p.stock_qty }}</strong> {{ p.unit }}
+                    (Босго: {{ p.low_stock_threshold }})
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3 class="card-title">📦 Бүх барааны нөөц</h3>
+    <div class="filter-bar">
+        <div class="search-bar-wrapper">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="inventorySearch" class="form-control"
+                   placeholder="Хайх..." oninput="filterInventory()">
+        </div>
+    </div>
+    <div class="table-container">
+        <table id="inventoryTable">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Баркод</th>
+                    <th>Нэр</th>
+                    <th>Ангилал</th>
+                    <th class="text-right">Нөөц</th>
+                    <th class="text-right">Босго</th>
+                    <th>Нэгж</th>
+                    <th class="text-center">Төлөв</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in products %}
+                <tr data-search="{{ p.name|lower }} {{ p.barcode }}">
+                    <td style="text-align:center; font-size:1.2rem;">{{ CATEGORY_ICONS.get(p.category, '📦') }}</td>
+                    <td><code>{{ p.barcode }}</code></td>
+                    <td><strong>{{ p.name }}</strong></td>
+                    <td><span class="category-icon"><span class="cat-emoji">{{ CATEGORY_ICONS.get(p.category, '📦') }}</span> {{ p.category }}</span></td>
+                    <td class="text-right">
+                        <span class="stock-indicator">
+                            <span class="stock-dot {% if p.stock_qty == 0 %}out{% elif p.stock_qty <= p.low_stock_threshold %}low{% else %}ok{% endif %}"></span>
+                            <strong>{{ p.stock_qty }}</strong>
+                        </span>
+                    </td>
+                    <td class="text-right text-muted">{{ p.low_stock_threshold }}</td>
+                    <td>{{ p.unit }}</td>
+                    <td class="text-center">
+                        {% if p.stock_qty == 0 %}
+                        <span class="status-badge status-failed">Дууссан</span>
+                        {% elif p.stock_qty <= p.low_stock_threshold %}
+                        <span class="status-badge status-pending">Бага</span>
+                        {% else %}
+                        <span class="status-badge status-sent">Хангалттай</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if forecast %}
+<div class="card" style="margin-top:16px;">
+    <h3 class="card-title">🔮 Нөөцийн таамаглал (сүүлийн 30 хоногийн дундаж)</h3>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Бараа</th>
+                    <th class="text-right">Одоогийн нөөц</th>
+                    <th class="text-right">Өдрийн дундаж</th>
+                    <th class="text-right">Үлдсэн хоног</th>
+                    <th class="text-center">Төлөв</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in forecast %}
+                <tr>
+                    <td style="text-align:center; font-size:1.2rem;">{{ CATEGORY_ICONS.get(p.category, '📦') }}</td>
+                    <td><strong>{{ p.name }}</strong></td>
+                    <td class="text-right">{{ p.stock_qty }} {{ p.unit }}</td>
+                    <td class="text-right">{{ p.avg_daily }}</td>
+                    <td class="text-right text-bold">
+                        {% if p.days_remaining < 0 %}
+                        <span class="text-muted">—</span>
+                        {% elif p.days_remaining <= 3 %}
+                        <span style="color:var(--error);">{{ p.days_remaining }} өдөр</span>
+                        {% elif p.days_remaining <= 7 %}
+                        <span style="color:var(--warning);">{{ p.days_remaining }} өдөр</span>
+                        {% else %}
+                        <span style="color:var(--success);">{{ p.days_remaining }} өдөр</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if p.days_remaining < 0 %}
+                        <span class="status-badge status-pending">Мэдээлэлгүй</span>
+                        {% elif p.days_remaining <= 3 %}
+                        <span class="status-badge status-failed">Яаралтай</span>
+                        {% elif p.days_remaining <= 7 %}
+                        <span class="status-badge status-pending">Захиалах</span>
+                        {% else %}
+                        <span class="status-badge status-sent">Хангалттай</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3 class="card-title">📝 Сүүлийн нөөц өөрчлөлтүүд</h3>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Огноо</th>
+                    <th>Бараа</th>
+                    <th class="text-right">Өөрчлөлт</th>
+                    <th>Шалтгаан</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in adjustments %}
+                <tr>
+                    <td>{{ a.created_at }}</td>
+                    <td>{{ a.product_name or '—' }}</td>
+                    <td class="text-right text-bold {% if a.quantity_change > 0 %}text-success{% else %}text-danger{% endif %}">
+                        {% if a.quantity_change > 0 %}+{% endif %}{{ a.quantity_change }}
+                    </td>
+                    <td>{{ a.reason or '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not adjustments %}
+                <tr>
+                    <td colspan="4" class="text-center text-muted" style="padding:24px;">
+                        Нөөц өөрчлөлт байхгүй
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal-overlay" id="adjustModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 class="modal-title">± Нөөц тохируулах</h2>
+            <button class="modal-close" onclick="closeModal('adjustModal')">&times;</button>
+        </div>
+        <form method="POST" action="{{ url_for('inventory_adjust') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Бараа сонгох:</label>
+                    <select name="product_id" class="form-control" required>
+                        <option value="">— Сонгоно уу —</option>
+                        {% for p in products %}
+                        <option value="{{ p.id }}">{{ CATEGORY_ICONS.get(p.category, '📦') }} {{ p.name }} (Одоо: {{ p.stock_qty }} {{ p.unit }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Өөрчлөлт (+ нэмэх, - хасах):</label>
+                    <input type="number" name="quantity_change" class="form-control" required
+                           placeholder="Жишээ: 10 эсвэл -3">
+                </div>
+                <div class="form-group">
+                    <label>Шалтгаан:</label>
+                    <input type="text" name="reason" class="form-control"
+                           placeholder="Жишээ: Бараа хүлээн авсан, Гэмтэл, Тооллого">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('adjustModal')">Цуцлах</button>
+                <button type="submit" class="btn btn-primary">✓ Хадгалах</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openModal(id) {
+    document.getElementById(id).classList.add('active');
+}
+function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+}
+function filterInventory() {
+    var q = document.getElementById('inventorySearch').value.toLowerCase();
+    document.querySelectorAll('#inventoryTable tbody tr').forEach(function(row) {
+        var text = row.dataset.search || '';
+        row.style.display = text.indexOf(q) !== -1 ? '' : 'none';
+    });
+}
+</script>
+{% endblock %}
