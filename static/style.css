@@ -918,7 +918,7 @@ a:hover {
 }
 
 .qty-input {
-    width: 48px;
+    width: 68px;
     height: 28px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
