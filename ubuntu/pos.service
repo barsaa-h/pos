@@ -1,0 +1,27 @@
+[Unit]
+Description=POS System
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=pos
+Group=pos
+WorkingDirectory=/opt/pos
+Environment=FLASK_PORT=8765
+Environment=POS_DB_PATH=/opt/pos/data/pos.db
+ExecStart=/opt/pos/venv/bin/python -m waitress --host=0.0.0.0 --port=8765 app:app
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/opt/pos/data/logs/stdout.log
+StandardError=append:/opt/pos/data/logs/stderr.log
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/pos/data
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

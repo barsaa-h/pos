@@ -1,5 +1,4 @@
 """Generate app icon in multiple formats from scratch using Pillow."""
-import math
 from PIL import Image, ImageDraw
 
 def create_app_icon(size=512):

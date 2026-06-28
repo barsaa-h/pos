@@ -1,0 +1,30 @@
+[Unit]
+Description=POS System (Linux Mint XFCE)
+After=network.target graphical.target
+Wants=graphical.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=pos
+Group=pos
+WorkingDirectory=/opt/pos
+Environment=POS_PORT=8765
+Environment=POS_DB_PATH=/opt/pos/pos.db
+# Mint-specific: launch via mint/desktop.py (uses waitress WSGI internally
+# instead of the Flask dev server, lighter on slow i5 2nd gen hardware).
+ExecStart=/opt/pos/venv/bin/python3 /opt/pos/mint/desktop.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/opt/pos/logs/stdout.log
+StandardError=append:/opt/pos/logs/stderr.log
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/pos/logs /opt/pos/backups /opt/pos/static/uploads /opt/pos/data
+PrivateTmp=yes
+
+[Install]
+WantedBy=graphical.target

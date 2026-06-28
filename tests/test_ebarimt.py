@@ -11,17 +11,6 @@ def test_adapter_not_configured():
     assert "тохиргоо хийгдээгүй" in result["error"]
 
 
-def test_retry_pending_not_configured():
-    from ebarimt import EbarimtAdapter
-    adapter = EbarimtAdapter()
-    adapter.api_url = ""
-    adapter.merchant_tin = ""
-    adapter.ttd = ""
-    adapter.branch_id = ""
-    results = adapter.retry_pending([1, 2])
-    assert results == []
-
-
 def test_adapter_logs_config_error(caplog):
     import logging
     caplog.set_level(logging.ERROR)

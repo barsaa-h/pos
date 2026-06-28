@@ -26,7 +26,7 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(PROJECT_DIR)
 sys.path.insert(0, ROOT_DIR)
 
-FLASK_PORT = 8765
+FLASK_PORT = int(os.environ.get("POS_PORT", "8765"))
 LOCK_FILE = os.path.join(tempfile.gettempdir(), "pos-app-windows.lock")
 
 # File logging for production debugging
@@ -60,11 +60,12 @@ def acquire_lock():
                         ctypes.windll.kernel32.CloseHandle(handle)
                         return False  # Process still alive
                 except Exception:
+                    logger.warning("Unhandled exception in: except Exception:")
                     pass
         os.remove(LOCK_FILE)
     except Exception:
+        logger.warning("Unhandled exception in: except Exception:")
         pass
-
     try:
         _lock_fd = open(LOCK_FILE, "w")
         _lock_fd.write(str(os.getpid()))
@@ -80,14 +81,14 @@ def release_lock():
         try:
             _lock_fd.close()
         except Exception:
+            logger.warning("Unhandled exception in: except Exception:")
             pass
         _lock_fd = None
     try:
         os.remove(LOCK_FILE)
     except Exception:
+        logger.warning("Unhandled exception in: except Exception:")
         pass
-
-
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
@@ -99,6 +100,8 @@ def is_port_in_use(port):
 
 
 def run_flask(port):
+    # Avoid double-init (see ubuntu/desktop.py for the rationale).
+    os.environ.setdefault("POS_SKIP_MODULE_INIT", "1")
     from app import create_app
     app = create_app()
     app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
@@ -132,16 +135,6 @@ def get_secondary_monitor():
     return None
 
 
-def get_icon_path():
-    ico = os.path.join(ROOT_DIR, "static", "pos-icon.ico")
-    if os.path.exists(ico):
-        return ico
-    png = os.path.join(ROOT_DIR, "static", "pos-icon.png")
-    if os.path.exists(png):
-        return png
-    return None
-
-
 _splash_root = None
 
 
@@ -158,7 +151,7 @@ def show_splash():
         x, y = (ws - w) // 2, (hs - h) // 2
         _splash_root.geometry(f"{w}x{h}+{x}+{y}")
         _splash_root.configure(bg="#1a1a2e")
-        tk.Label(_splash_root, text="Миний дэлгүүр", font=("Segoe UI", 20, "bold"),
+        tk.Label(_splash_root, text="Моност", font=("Segoe UI", 20, "bold"),
                  fg="white", bg="#1a1a2e").pack(pady=(35, 5))
         tk.Label(_splash_root, text="POS System", font=("Segoe UI", 12),
                  fg="#aaaacc", bg="#1a1a2e").pack()
@@ -175,6 +168,7 @@ def hide_splash():
         try:
             _splash_root.destroy()
         except Exception:
+            logger.warning("Unhandled exception in: except Exception:")
             pass
         _splash_root = None
 
@@ -266,10 +260,9 @@ class POSApplication:
         import webview
 
         base_url = f"http://127.0.0.1:{FLASK_PORT}"
-        icon_path = get_icon_path()
 
         self.cashier_window = webview.create_window(
-            "Миний дэлгүүр — Cashier", f"{base_url}/",
+            "Моност — Cashier", f"{base_url}/",
             fullscreen=True, min_size=(1280, 700),
             text_select=False, confirm_close=False
         )
@@ -279,14 +272,14 @@ class POSApplication:
         if secondary:
             x, y, w, h = secondary
             self.customer_window = webview.create_window(
-                "Миний дэлгүүр — Customer", f"{base_url}/customer",
+                "Моност — Customer", "",
                 x=x, y=y, width=w, height=h,
                 fullscreen=True, text_select=False, confirm_close=False
             )
             logger.info(f"Customer window on secondary monitor ({x},{y})")
         else:
             self.customer_window = webview.create_window(
-                "Миний дэлгүүр — Customer", f"{base_url}/customer",
+                "Моност — Customer", "",
                 fullscreen=True, text_select=False, confirm_close=False
             )
             logger.info("Customer window on primary monitor")
@@ -303,9 +296,14 @@ class POSApplication:
             ]),
         ]
 
+        def _on_start():
+            if self.customer_window:
+                self.customer_window.load_url(f"{base_url}/customer")
+            logger.info("Customer window navigated to /customer")
+
         logger.info("Starting webview event loop...")
         try:
-            webview.start(menu=menu_items, debug=False, http_server=False, private_mode=False)
+            webview.start(func=_on_start, menu=menu_items, debug=False, http_server=False, private_mode=False)
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
         except Exception as e:

@@ -18,7 +18,12 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 COPY . .
 
-RUN mkdir -p /app/data /app/backups /app/logs /app/static/uploads && chmod 755 /app/data /app/backups /app/logs /app/static/uploads
+# Create non-root user
+RUN groupadd -r posuser && useradd -r -g posuser -d /app -s /sbin/nologin posuser
+
+RUN mkdir -p /app/data /app/backups /app/logs /app/static/uploads && chown -R posuser:posuser /app
+
+USER posuser
 
 EXPOSE 8765
 
@@ -28,7 +33,15 @@ ENV FLASK_ENV=production \
 
 VOLUME ["/app/data", "/app/backups"]
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8765", "--workers", "2", "--threads", "4", \
+STOPSIGNAL SIGTERM
+
+# Health check: verify Flask responds on /api/health
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8765/api/health')" || exit 1
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8765", "--workers", "1", "--threads", "4", \
+     "--max-requests", "1000", "--max-requests-jitter", "50", \
      "--access-logfile", "-", "--error-logfile", "-", \
      "--timeout", "120", \
-     "app:app"]
+     "--preload", \
+     "app:application"]

@@ -4,23 +4,20 @@
 
 {% block head %}
 <script>
-var CATEGORY_ICONS = {
-    'Сүүн бүтээгдэхүүн': '🥛', 'Талх нарийн боов': '🍞', 'Өндөг': '🥚',
-    'Будаа': '🍚', 'Гоймон': '🍜', 'Тос': '🛢️', 'Чихэр': '🍬',
-    'Давс амтлагч': '🧂', 'Жимс': '🍎', 'Ус ундаа': '🥤', 'Бусад': '📦'
-};
-var CATEGORY_COLORS = {
-    'Сүүн бүтээгдэхүүн': '#3B82F6', 'Талх нарийн боов': '#F59E0B', 'Өндөг': '#EAB308',
-    'Будаа': '#22C55E', 'Гоймон': '#EF4444', 'Тос': '#A855F7', 'Чихэр': '#06B6D4',
-    'Давс амтлагч': '#78716C', 'Жимс': '#84CC16', 'Ус ундаа': '#0EA5E9', 'Бусад': '#6B7280'
-};
+var CATEGORY_ICONS = {{ CATEGORY_ICONS | tojson }};
+var CATEGORY_COLORS = {{ CATEGORY_COLORS | tojson }};
+var SHOW_STOCK_WARNINGS = {{ (settings.get('show_stock_warnings', 'true') == 'true') | tojson }};
 function getCategoryIcon(cat) { return CATEGORY_ICONS[cat] || CATEGORY_ICONS['Бусад']; }
 function getCategoryColor(cat) { return CATEGORY_COLORS[cat] || CATEGORY_COLORS['Бусад']; }
 var QR_PAYMENT_IMAGE = {{ settings.get('qr_payment_image', '') | tojson }};
+var TERMINAL_CONFIGURED = {{ terminal_configured | tojson }};
+var TERMINAL_AUTO_SEND_CARD = {{ (settings.get('terminal_auto_send_card', 'true') == 'true') | tojson }};
+var DISCOUNTS_ENABLED = {{ (settings.get('discounts_enabled', 'false') == 'true') | tojson }};
 </script>
 {% endblock %}
 
 {% block content %}
+<div id="connectionStatus"></div>
 <div class="pos-layout">
     <div class="pos-left">
         <div class="barcode-area">
@@ -36,61 +33,58 @@ var QR_PAYMENT_IMAGE = {{ settings.get('qr_payment_image', '') | tojson }};
                    placeholder="🔍  Бараа хайх..." oninput="onSearchInput()">
         </div>
 
-        <div class="category-filter" id="categoryFilter">
-            <button class="category-btn active" onclick="filterByCategory('', this)">
-                <span>🌐</span> Бүгд
-            </button>
-            {% for cat in categories %}
-            <button class="category-btn" onclick="filterByCategory('{{ cat }}', this)">
-                <span>{{ CATEGORY_ICONS.get(cat, '📦') }}</span> {{ cat }}
-            </button>
-            {% endfor %}
+        <div class="category-filter-wrapper">
+            <button class="cat-scroll-btn cat-scroll-left" id="catScrollLeft" onclick="scrollCategoryFilter(-1)" aria-label="Өмнөх">‹</button>
+            <div class="category-filter" id="categoryFilter">
+                <button class="category-btn active" onclick="filterByCategory('', this)">
+                    <span>🌐</span> Бүгд
+                </button>
+                {% for cat in categories %}
+                <button class="category-btn" onclick="filterByCategory('{{ cat }}', this)">
+                    <span>{{ CATEGORY_ICONS.get(cat, '📦') }}</span> {{ cat }}
+                </button>
+                {% endfor %}
+            </div>
+            <button class="cat-scroll-btn cat-scroll-right" id="catScrollRight" onclick="scrollCategoryFilter(1)" aria-label="Дараах">›</button>
         </div>
 
-        <div class="product-grid" id="productGrid" data-max-stock="{{ max_stock }}">
+        <div class="product-grid" id="productGrid">
+            {% if products_truncated %}
+            <div class="truncated-notice">
+                <div class="truncated-icon">🔍</div>
+                <div class="truncated-text">Хайлт хийж бараа сонгоно уу</div>
+            </div>
+            {% endif %}
             {% for p in products %}
-            <div class="product-card {% if p.stock_qty == 0 %}product-card-disabled{% endif %}"
+            <div class="product-card{% if not p.barcode and p.unit != 'кг' %} no-barcode{% endif %}"
                  style="--cat-color: {{ CATEGORY_COLORS.get(p.category, '#6B7280') }}"
                  data-id="{{ p.id }}"
                  data-barcode="{{ p.barcode }}"
                  data-name="{{ p.name }}"
                  data-price="{{ p.price }}"
-                 data-stock="{{ p.stock_qty }}"
+                 data-stock="9999"
                  data-unit="{{ p.unit }}"
                  data-category="{{ p.category }}"
                  data-image-url="{{ p.image_url or '' }}"
-                 {% if p.stock_qty > 0 %}onclick="addToCartFromGrid(this)"{% endif %}>
+                 onclick="addToCartFromGrid(this)">
                 {% if p.image_url %}
-                <img src="{{ p.image_url }}" alt="{{ p.name|e }}" class="card-icon" style="width:3.2rem; height:3.2rem; object-fit:cover; border-radius:8px; display:block;">
+                <img src="{{ p.image_url }}" alt="{{ p.name|e }}" loading="lazy" class="card-icon" style="width:3.2rem; height:3.2rem; object-fit:cover; border-radius:8px; display:block;">
                 {% else %}
                 <div class="card-icon">{{ CATEGORY_ICONS.get(p.category, '📦') }}</div>
                 {% endif %}
                 <div class="card-name">{{ p.name }}</div>
                 <div class="card-price">{{ "{:,.0f}".format(p.price) }} ₮</div>
-                <div class="card-stock">
-                    {{ p.stock_qty }} {{ p.unit }}
-                    {% if p.stock_qty == 0 %}
-                    <br><span class="low-stock-badge out-of-stock">✕ Дууссан</span>
-                    {% elif p.stock_qty <= p.low_stock_threshold %}
-                    <br><span class="low-stock-badge">⚠ Бага</span>
-                    {% endif %}
-                </div>
-                {% if max_stock > 0 %}
-                {% set pct = (p.stock_qty / max_stock * 100)|round %}
-                {% set bar_color = '#EF4444' if p.stock_qty == 0 else (CATEGORY_COLORS.get(p.category, '#6B7280')) %}
-                <div class="stock-bar"><div class="stock-bar-fill" style="width:{{ pct }}%;background:{{ bar_color }};"></div></div>
-                {% endif %}
             </div>
             {% endfor %}
         </div>
     </div>
 
-    <div class="pos-right">
+    <div class="pos-right" role="region" aria-label="Сагс">
         <div class="cart-header">
             <span>🛒 Сагс <span class="cart-count-badge" id="cartCount">0</span></span>
             <div style="display:flex; gap:8px;">
                 <button class="btn-held-orders" onclick="showHeldOrders()" title="Хүлээлгэсэн захиалгууд">
-                    📋 <span id="heldOrdersCount" style="display:none;" class="cart-count-badge" style="background:#F59E0B;">0</span>
+                    📋 <span id="heldOrdersCount" class="cart-count-badge" style="display:none;background:#F59E0B;">0</span>
                 </button>
                 <button class="btn-clear-cart" onclick="clearCart()" title="ESC">
                     🗑 Цэвэрлэх
@@ -105,35 +99,33 @@ var QR_PAYMENT_IMAGE = {{ settings.get('qr_payment_image', '') | tojson }};
         </div>
 
         <div class="cart-totals" id="cartTotals" style="display:none;">
-            <div class="cart-total-row">
-                <span>Дэд дүн:</span>
-                <span id="subtotalDisplay">0 ₮</span>
-            </div>
-            <div class="cart-total-row">
-                <span>НӨАТ (10%):</span>
-                <span id="vatDisplay">0 ₮</span>
-            </div>
             <div class="cart-total-row grand-total">
                 <span>Нийт:</span>
                 <span id="totalDisplay">0 ₮</span>
             </div>
         </div>
 
+        <!-- Payment selector popup -->
+        <div class="payment-selector" id="paymentSelector" style="display:none;">
+            <div class="ps-grid">
+                <button class="ps-btn ps-cash" onclick="openCheckout('cash'); hidePaymentSelector();">
+                    💵 Бэлэн
+                </button>
+                <button class="ps-btn ps-card" onclick="openCheckout('card'); hidePaymentSelector();">
+                    💳 Карт
+                </button>
+                <button class="ps-btn ps-qr" onclick="openCheckout('qr'); hidePaymentSelector();">
+                    📱 QR
+                </button>
+            </div>
+        </div>
+
         <div class="checkout-area">
-            <button class="checkout-btn btn-cash" id="btnCash" onclick="openCheckout('cash')" disabled title="F2">
-                💵 Бэлнээр төлөх
+            <button class="checkout-btn btn-pay" id="btnPay" onclick="showPaymentSelector()" disabled>
+                💰 ТӨЛБӨР ТӨЛӨХ
             </button>
-            <button class="checkout-btn btn-card" id="btnCard" onclick="openCheckout('card')" disabled title="F4">
-                💳 Картаар төлөх
-            </button>
-            <button class="checkout-btn btn-split" id="btnSplit" onclick="openCheckout('split')" disabled>
-                🔀 Холимог төлбөр
-            </button>
-            <button class="checkout-btn btn-qr" id="btnQr" onclick="openCheckout('qr')" disabled title="F5">
-                📱 QR төлбөр
-            </button>
-            <button class="checkout-btn btn-hold" id="btnHold" onclick="holdOrder()" disabled>
-                ⏸ Хүлээлгэх
+            <button class="btn-hold-sm" id="btnHold" onclick="holdOrder()" disabled title="F3">
+                ⏸
             </button>
         </div>
     </div>
@@ -143,7 +135,7 @@ var QR_PAYMENT_IMAGE = {{ settings.get('qr_payment_image', '') | tojson }};
 <div class="modal-overlay" id="checkoutModal" role="dialog" aria-modal="true" aria-labelledby="checkoutTitle">
     <div class="modal">
         <div class="modal-header">
-            <h2 class="modal-title" id="checkoutTitle">Төлбөр хийх</h2>
+            <h2 class="modal-title" id="checkoutTitle">Төлбөр</h2>
             <button class="modal-close" onclick="closeCheckout()">&times;</button>
         </div>
         <div class="modal-body">
@@ -153,77 +145,52 @@ var QR_PAYMENT_IMAGE = {{ settings.get('qr_payment_image', '') | tojson }};
 
             <div id="cashSection" style="display:none;">
                 <div class="quick-cash-grid">
-                    <button class="quick-cash-btn" onclick="setCashAmount(1000)">1,000</button>
-                    <button class="quick-cash-btn" onclick="setCashAmount(5000)">5,000</button>
-                    <button class="quick-cash-btn" onclick="setCashAmount(10000)">10,000</button>
-                    <button class="quick-cash-btn" onclick="setCashAmount(20000)">20,000</button>
-                    <button class="quick-cash-btn" onclick="setCashAmount(50000)">50,000</button>
-                    <button class="quick-cash-btn" onclick="setCashAmount(100000)">100,000</button>
-                    <button class="quick-cash-btn exact-btn" onclick="setExactAmount()">✓ ЯГ ДҮН</button>
+                    <button class="quick-cash-btn" onclick="setCashAmount(1000)">1,000₮</button>
+                    <button class="quick-cash-btn" onclick="setCashAmount(5000)">5,000₮</button>
+                    <button class="quick-cash-btn" onclick="setCashAmount(10000)">10,000₮</button>
+                    <button class="quick-cash-btn" onclick="setCashAmount(20000)">20,000₮</button>
                 </div>
-                <div class="form-group" style="margin-top:14px;">
-                    <label for="cashGivenInput">Бэлэн мөнгө (₮):</label>
-                    <input type="number" id="cashGivenInput" class="form-control"
-                           placeholder="0" min="0" oninput="calculateChange()"
-                           style="font-size:1.3rem; font-weight:700; text-align:center; min-height:56px;">
+                <div class="cash-input-row">
+                    <input type="number" id="cashGivenInput" class="form-control cash-input"
+                           placeholder="Гараас дүн оруулах" min="0" oninput="calculateChange()"
+                           autocomplete="off">
+                    <button class="btn btn-primary btn-cash-confirm" id="confirmCheckout" onclick="confirmSale()">
+                        ✓ Батлах
+                    </button>
                 </div>
-                <div class="cart-total-row" id="changeRow" style="display:none; font-size:1.1rem; padding:10px; background:var(--success-bg); border-radius:10px; margin-top:8px;">
-                    <span style="font-weight:700;">💰 Буцаалт:</span>
-                    <span id="changeDisplay" class="text-success text-bold" style="font-size:1.3rem;">0 ₮</span>
+                <div id="changeRow" class="change-row" style="display:none;">
+                    <span>💰 Буцаалт:</span>
+                    <span id="changeDisplay">0 ₮</span>
                 </div>
             </div>
 
             <div id="cardSection" style="display:none;">
-                <div class="card-instruction">
-                    <p style="font-size:1.1rem; font-weight:600;">Картын машин дээр дараах дүнг төлүүлнэ үү:</p>
-                    <p class="amount" id="cardAmountDisplay">0 ₮</p>
-                    <p style="margin-top:8px; font-size:0.9rem; color:var(--text-muted);">
-                        Картын машин дээр төлсөний дараа "Баталгаажуулах" товчийг дарна уу.
-                    </p>
-                </div>
-            </div>
-
-            <div id="splitSection" style="display:none;">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>💳 Картын дүн (₮):</label>
-                        <input type="number" id="splitCardAmount" class="form-control"
-                               placeholder="0" min="0" oninput="calculateSplit()"
-                               style="font-size:1.2rem; font-weight:700; text-align:center;">
-                    </div>
-                    <div class="form-group">
-                        <label>💵 Бэлэн дүн (₮):</label>
-                        <input type="number" id="splitCashAmount" class="form-control"
-                               placeholder="0" min="0" oninput="calculateSplit()"
-                               style="font-size:1.2rem; font-weight:700; text-align:center;">
-                    </div>
-                </div>
-                <div id="splitRemaining" style="text-align:center; padding:8px; font-weight:700; font-size:1.05rem; color:var(--text-secondary);"></div>
-                <div class="card-instruction" id="splitCardInstruction" style="display:none; margin-top:12px;">
-                    <p>Картын машин дээр төлөх дүн:</p>
-                    <p class="amount" id="splitCardDisplay">0 ₮</p>
+                <div class="card-pay-box">
+                    <div class="card-amount" id="cardAmountDisplay">0 ₮</div>
+                    <button type="button" id="btnSendTerminal" class="btn btn-primary btn-card-pay" onclick="terminalCheckout()">
+                        💳 Картаар төлүүлэх
+                    </button>
+                    <div id="terminalStatus" class="terminal-status"></div>
                 </div>
             </div>
 
             <div id="qrSection" style="display:none;">
-                <div class="card-instruction">
-                    <p style="font-size:1.1rem; font-weight:600;">QR код уншуулж төлүүлнэ үү:</p>
+                <div class="qr-pay-box">
+                    <p class="qr-amount-label">QR код төлбөр</p>
                     <p class="amount" id="qrAmountDisplay">0 ₮</p>
-                    <div id="qrCodeContainer" style="margin:16px auto; text-align:center;">
-                        <img id="qrCodeImage" src="" alt="QR код" style="max-width:200px; max-height:200px; border-radius:12px; display:none;">
-                        <p id="qrNoImage" style="color:var(--text-muted); font-size:0.9rem;">QR кодын зураг тохиргоонд оруулаагүй байна.</p>
+                    <div id="qrCodeContainer">
+                        <p id="qrNoImage">📱 QR код үйлчлүүлэгчийн дэлгэцэнд гарлаа</p>
+                        <div id="qrPaymentStatus"></div>
+                        <div id="qpayTimer"></div>
                     </div>
-                    <p style="margin-top:8px; font-size:0.9rem; color:var(--text-muted);">
-                        Төлбөр хийгдсэний дараа "Баталгаажуулах" товчийг дарна уу.
-                    </p>
                 </div>
             </div>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeCheckout()">Цуцлах</button>
-            <button class="btn btn-primary btn-large" id="confirmCheckout" onclick="confirmSale()">
-                ✓ Баталгаажуулах
-            </button>
+
+            <details class="tin-toggle">
+                <summary>📄 Байгууллагын регистр</summary>
+                <input type="text" id="customerTinInput" maxlength="12" class="form-control"
+                       placeholder="Регистр дугаар (хоосон = хувь хүн)">
+            </details>
         </div>
     </div>
 </div>
@@ -245,27 +212,29 @@ var QR_PAYMENT_IMAGE = {{ settings.get('qr_payment_image', '') | tojson }};
                 <label>Нэр:</label>
                 <input type="text" id="newProductName" class="form-control" placeholder="Барааны нэр">
             </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Үнэ (₮):</label>
-                    <input type="number" id="newProductPrice" class="form-control" placeholder="0" min="0">
-                </div>
-                <div class="form-group">
-                    <label>Нөөц:</label>
-                    <input type="number" id="newProductStock" class="form-control" placeholder="0" min="0">
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Ангилал:</label>
-                    <select id="newProductCategory" class="form-control">
-                        {% for cat in categories %}
-                        <option value="{{ cat }}" {% if cat == 'Бусад' %}selected{% endif %}>
-                            {{ CATEGORY_ICONS.get(cat, '📦') }} {{ cat }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Үнэ (₮):</label>
+                        <input type="number" id="newProductPrice" class="form-control" placeholder="0" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>Ангилал:</label>
+                        <div style="display:flex; gap:4px; align-items:center;">
+                            <select id="newProductCategory" class="form-control" style="flex:1;">
+                            {% for cat in categories %}
+                            <option value="{{ cat }}" {% if cat == 'Бусад' %}selected{% endif %}>
+                                {{ CATEGORY_ICONS.get(cat, '📦') }} {{ cat }}
+                            </option>
+                            {% endfor %}
+                            </select>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="showPosCatInput()" style="min-width:32px; height:46px; padding:0;" title="Шинэ ангилал">+</button>
+                        </div>
+                        <div id="newProductCategoryInput" style="display:none; margin-top:4px; gap:4px;">
+                            <input type="text" class="form-control" id="newProductCategoryInputText" placeholder="Ангиллын нэр" style="flex:1;" maxlength="50">
+                            <button type="button" class="btn btn-sm btn-primary" onclick="posAddCategory()">✓</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('newProductCategoryInput').style.display='none'">✕</button>
+                        </div>
+                    </div>
                 <div class="form-group">
                     <label>Нэгж:</label>
                     <select id="newProductUnit" class="form-control">
@@ -334,6 +303,7 @@ var QR_PAYMENT_IMAGE = {{ settings.get('qr_payment_image', '') | tojson }};
                 <tr><td><kbd>F2</kbd></td><td>💵 Бэлнээр төлөх</td></tr>
                 <tr><td><kbd>F4</kbd></td><td>💳 Картаар төлөх</td></tr>
                 <tr><td><kbd>F5</kbd></td><td>📱 QR төлбөр</td></tr>
+                <tr><td><kbd>F6</kbd></td><td>🏷 Бүртгэлгүй бараа</td></tr>
                 <tr><td><kbd>F3</kbd></td><td>⏸ Захиалга хүлээлгэх</td></tr>
                 <tr><td><kbd>→←↑↓</kbd></td><td>🎯 Бараа сонгох</td></tr>
                 <tr><td><kbd>Enter</kbd></td><td>➕ Сонгосон бараа нэмэх</td></tr>
@@ -351,7 +321,7 @@ var QR_PAYMENT_IMAGE = {{ settings.get('qr_payment_image', '') | tojson }};
 
 <div class="loading-overlay" id="loadingOverlay">
     <div class="spinner"></div>
-    <div>Борлуулалт хийгдэж байна...</div>
+    <div class="loading-text">Борлуулалт хийгдэж байна...</div>
 </div>
 
 <!-- Held Orders Modal -->
@@ -367,5 +337,11 @@ var QR_PAYMENT_IMAGE = {{ settings.get('qr_payment_image', '') | tojson }};
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='pos.js') }}"></script>
+<script src="{{ static_url('pos.js') }}" defer></script>
+<script>
+window.__POS_CONFIG__ = {
+    products_truncated: {{ 'true' if products_truncated else 'false' }},
+    categories: {{ categories | tojson }}
+};
+</script>
 {% endblock %}

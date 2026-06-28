@@ -1,30 +1,20 @@
 <!DOCTYPE html>
-<html lang="mn" data-theme="{{ settings.get('theme', 'auto') }}">
+<html lang="mn" data-theme="light"{% if settings.get('low_perf_mode', 'false') == 'true' %} data-perf="low"{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}POS Систем{% endblock %} — {{ store_info.name }}</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='pos-icon-32.png') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script>
-    (function() {
-        var theme = document.documentElement.getAttribute('data-theme') || 'auto';
-        if (theme === 'dark') document.documentElement.classList.add('force-dark');
-        else if (theme === 'light') document.documentElement.classList.add('force-light');
-    })();
-    </script>
+    {# Performance: drop Google Fonts request.
+       Store computers run Linux Mint offline; the external CDN round-trip
+       blocked first paint and the font never loaded anyway. The font stack
+       in style.css falls back to system fonts (DejaVu Sans on Mint,
+       Liberation Sans as a fallback) which render perfectly. #}
+    <link rel="stylesheet" href="{{ static_url('style.css') }}">
     <meta name="csrf-token" content="{{ csrf_token }}">
     {% block head %}{% endblock %}
 </head>
 <body>
-    {% if not ebarimt_configured %}
-    <div class="ebarimt-warning" id="ebarimtWarning">
-        <span>⚠️ eBarimt тохиргоо хийгдээгүй байна.
-            <a href="{{ url_for('settings_page') }}">Тохиргоо хуудсанд очно уу.</a>
-        </span>
-        <button onclick="this.parentElement.style.display='none'" class="warning-close">&times;</button>
-    </div>
-    {% endif %}
 
     <nav class="top-nav">
         <div class="nav-left">
@@ -34,19 +24,13 @@
                     🛒 Борлуулалт
                 </a>
                 <a href="{{ url_for('sales_page') }}" class="nav-link {% if request.endpoint in ['sales_page', 'sale_detail'] %}active{% endif %}">
-                    📋 Түүх
+                    📋 Түүх <span id="ebarimtPendingBadge" style="display:none; background:var(--error); color:#fff; border-radius:50%; padding:1px 6px; font-size:0.7rem; margin-left:2px; vertical-align:super;"></span>
                 </a>
                 <a href="{{ url_for('products_page') }}" class="nav-link {% if request.endpoint == 'products_page' %}active{% endif %}">
                     📦 Бараа
                 </a>
-                <a href="{{ url_for('suppliers_page') }}" class="nav-link {% if request.endpoint == 'suppliers_page' %}active{% endif %}">
-                    🚚 Нийлүүлэгч
-                </a>
                 <a href="{{ url_for('categories_page') }}" class="nav-link {% if request.endpoint == 'categories_page' %}active{% endif %}">
                     🏷 Ангилал
-                </a>
-                <a href="{{ url_for('inventory_page') }}" class="nav-link {% if request.endpoint == 'inventory_page' %}active{% endif %}">
-                    📊 Нөөц
                 </a>
                 <a href="{{ url_for('reports_page') }}" class="nav-link {% if request.endpoint == 'reports_page' %}active{% endif %}">
                     📈 Тайлан
@@ -63,7 +47,7 @@
 
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
-    <div class="flash-container">
+    <div class="flash-container" role="status" aria-live="polite">
         {% for category, message in messages %}
         <div class="flash flash-{{ category }}">
             {{ message }}
@@ -74,7 +58,7 @@
     {% endif %}
     {% endwith %}
 
-    <main class="main-content {% block content_class %}{% endblock %}">
+    <main class="main-content {% block content_class %}{% endblock %}" id="main-content">
         {% block content %}{% endblock %}
     </main>
 
@@ -89,7 +73,14 @@
             }
         }
         updateClock();
+        {# Low-perf mode: tick the clock once per minute instead of every second.
+           The cashier doesn't need second precision and a per-second setInterval
+           is one of the JS hot paths during checkout. #}
+        {% if settings.get('low_perf_mode', 'false') == 'true' %}
+        setInterval(updateClock, 30000);
+        {% else %}
         setInterval(updateClock, 1000);
+        {% endif %}
 
         setTimeout(function() {
             const flashes = document.querySelectorAll('.flash');
@@ -100,9 +91,27 @@
             });
         }, 5000);
 
+        function updateEbarimtBadge() {
+            fetch('/api/ebarimt/pending-count', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var badge = document.getElementById('ebarimtPendingBadge');
+                    if (badge) {
+                        if (data.count > 0) {
+                            badge.textContent = data.count;
+                            badge.style.display = 'inline';
+                        } else {
+                            badge.style.display = 'none';
+                        }
+                    }
+                })
+                .catch(function() {});
+        }
+        updateEbarimtBadge();
+        setInterval(updateEbarimtBadge, 60000);
+
         (function() {
-            const originalFetch = window.fetch;
-            let isRefreshing = false;
+            var originalFetch = window.fetch;
 
             function getCsrfToken() {
                 const meta = document.querySelector('meta[name="csrf-token"]');
@@ -110,32 +119,18 @@
             }
 
             function updateCsrfMeta(token) {
-                const meta = document.querySelector('meta[name="csrf-token"]');
+                var meta = document.querySelector('meta[name="csrf-token"]');
                 if (meta) meta.setAttribute('content', token);
-            }
-
-            function refreshCsrf() {
-                isRefreshing = true;
-                return fetch('/api/csrf/refresh', { method: 'POST' })
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        isRefreshing = false;
-                        if (data.success && data.csrf_token) {
-                            updateCsrfMeta(data.csrf_token);
-                        }
-                        return data;
-                    })
-                    .catch(function() {
-                        isRefreshing = false;
-                        return {};
-                    });
+                document.querySelectorAll('input[name="csrf_token"]').forEach(function(inp) {
+                    inp.value = token;
+                });
             }
 
             window.fetch = function(input, init) {
                 init = init || {};
-                let headers = new Headers(init.headers);
-                const method = (init.method || 'GET').toUpperCase();
-                let csrfToken = getCsrfToken();
+                var headers = new Headers(init.headers);
+                var method = (init.method || 'GET').toUpperCase();
+                var csrfToken = getCsrfToken();
 
                 if (csrfToken && ['POST','PUT','PATCH','DELETE'].indexOf(method) !== -1) {
                     if (!headers.has('X-CSRF-Token')) {
@@ -144,16 +139,17 @@
                 }
                 init.headers = headers;
 
-                let retries = 0;
-                const doFetch = function() {
+                var retries = 0;
+                var doFetch = function() {
                     return originalFetch.call(window, input, init).then(function(res) {
-                        if (res.status === 403 && !isRefreshing && getCsrfToken() && retries < 1) {
+                        var newToken = res.headers.get('X-CSRF-Token');
+                        if (newToken) updateCsrfMeta(newToken);
+
+                        if (res.status === 403 && getCsrfToken() && retries < 1) {
                             retries++;
-                            return refreshCsrf().then(function() {
-                                headers.set('X-CSRF-Token', getCsrfToken());
-                                init.headers = headers;
-                                return doFetch();
-                            });
+                            headers.set('X-CSRF-Token', getCsrfToken());
+                            init.headers = headers;
+                            return doFetch();
                         }
                         return res;
                     });

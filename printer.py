@@ -11,6 +11,7 @@ Falls back gracefully when printer is unavailable.
 import logging
 import os
 import platform
+import concurrent.futures
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -95,8 +96,12 @@ def print_receipt(sale_data, store_info):
     if not ESCPOS_AVAILABLE:
         return {"success": False, "error": "python-escpos суулгаагүй байна."}
 
+    # Card payments are printed by PAX A930's built-in printer, skip POS printer
+    if sale_data.get("payment_type") == "card":
+        logger.info("Card payment — receipt printed by PAX terminal, skipping POS printer")
+        return {"success": True, "error": "", "note": "pax_printed"}
+
     try:
-        from config import get_config
         printer_port = get_effective_printer_port()
         receipt_width = int(get_config("receipt_width") or 32)
     except Exception:
@@ -104,7 +109,15 @@ def print_receipt(sale_data, store_info):
         receipt_width = 32
 
     try:
-        printer = File(printer_port)
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(File, printer_port)
+        try:
+            printer = future.result(timeout=10)
+        except concurrent.futures.TimeoutError:
+            executor.shutdown(wait=False)
+            return {"success": False, "error": f"Хэвлэгч холбогдох хугацаа хэтэрсэн: {printer_port}"}
+        finally:
+            executor.shutdown(wait=False)
 
         _print_header(printer, store_info, sale_data, receipt_width)
         _print_items(printer, sale_data, receipt_width)
@@ -114,11 +127,14 @@ def print_receipt(sale_data, store_info):
         _print_lottery(printer, sale_data)
         _print_footer(printer, receipt_width)
 
-        printer.cut()
-
+        # Kick cash drawer before cut (some hardware needs this order)
         payment_type = sale_data.get("payment_type", "")
-        if payment_type in ("cash", "split"):
+        if payment_type == "cash":
             _cash_drawer_kick(printer)
+        elif payment_type == "split" and sale_data.get("cash_amount", 0) > 0:
+            _cash_drawer_kick(printer)
+
+        printer.cut()
 
         logger.info(f"Receipt printed for sale #{sale_data.get('id')} on {printer_port}")
         return {"success": True, "error": ""}
@@ -156,33 +172,47 @@ def _print_header(printer, store_info, sale_data, width):
         printer.text("Утас: " + phone + "\n")
     now = datetime.now()
     printer.text(now.strftime("%Y-%m-%d %H:%M:%S") + "\n")
-    cashier_name = sale_data.get("cashier_name", "")
-    if cashier_name:
-        printer.text("Кассчин: " + cashier_name + "\n")
     payment_type = sale_data.get("payment_type", "cash")
     if payment_type == "return":
         printer.set(bold=True)
         printer.text("!!! БУЦААЛТ !!!\n")
         printer.set(bold=False)
     printer.text("Борлуулалт #:" + str(sale_data.get("id", "")) + "\n")
-    printer.text("-" * width + "\n")
+    _print_separator(printer, width)
 
 
 def _print_items(printer, sale_data, width):
     items = sale_data.get("items", [])
+    # Group items by category
+    from collections import OrderedDict
+    grouped = OrderedDict()
     for item in items:
-        name = item.get("product_name", "Бараа")
-        qty = item.get("quantity", 1)
-        unit_price = item.get("unit_price", 0)
-        subtotal = item.get("subtotal", 0)
-        name_width = width - 14
-        if len(name) > name_width:
-            name = name[:name_width - 3] + "..."
-        printer.text(name + "\n")
-        qty_str = str(int(qty)) if qty == int(qty) else str(qty)
-        line = f"  {qty_str} x {_fmt(unit_price)} = {_fmt(subtotal)}"
-        printer.text(line + "\n")
-    printer.text("-" * width + "\n")
+        cat = item.get("category", "Бусад")
+        if cat not in grouped:
+            grouped[cat] = []
+        grouped[cat].append(item)
+
+    item_num = 1
+    for cat, cat_items in grouped.items():
+        printer.set(bold=True)
+        printer.text(f"--- {cat} ---\n")
+        printer.set(bold=False)
+        for item in cat_items:
+            name = item.get("product_name", "Бараа")
+            qty = item.get("quantity", 1)
+            unit_price = item.get("unit_price", 0)
+            subtotal = item.get("subtotal", 0)
+            name_width = max(1, width - 22)
+            if len(name) > name_width:
+                name = name[:name_width - 3] + "..."
+            qty_str = str(int(qty)) if qty == int(qty) else f"{qty:.3f}".rstrip('0').rstrip('.')
+            line = f"{item_num}. {name}"
+            printer.text(line[:width] + "\n")
+            line2 = f"   {qty_str} x {_fmt(unit_price)} = {_fmt(subtotal)}"
+            printer.text(line2 + "\n")
+            item_num += 1
+        printer.text("\n")
+    _print_separator(printer, width)
 
 
 def _print_totals(printer, sale_data, width):
@@ -192,12 +222,12 @@ def _print_totals(printer, sale_data, width):
     except Exception:
         show_vat = False
     total = sale_data.get("total", 0)
-    printer.text(f"Нийт дүн: {_rpad(_fmt(total), width)}\n")
+    printer.text(f"Нийт дүн: {_rfmt(total, width)}\n")
     if show_vat:
-        vat = total // 11 if total > 0 else 0
-        printer.text(f"НӨАТ (10%): {_rpad(_fmt(vat), width)}\n")
+        vat = round(total * 10 / 110) if total > 0 else 0
+        printer.text(f"НӨАТ (10%): {_rfmt(vat, width)}\n")
     printer.set(bold=True)
-    printer.text(f"НИЙТ: {_rpad(_fmt(total), width)}\n")
+    printer.text(f"НИЙТ: {_rfmt(total, width)}\n")
     printer.set(bold=False)
 
 
@@ -206,20 +236,20 @@ def _print_payment(printer, sale_data, width):
     if payment_type == "return":
         printer.text(f"БУЦААЛТ: {_rpad(_fmt(abs(sale_data.get('total', 0))), width)}\n")
     elif payment_type == "cash":
-        printer.text(f"Төлбөр: Бэлэн\n")
+        printer.text("Төлбөр: Бэлэн\n")
         cash_given = sale_data.get("cash_given", 0)
         change_given = sale_data.get("change_given", 0)
         printer.text(f"  Өгсөн: {_rpad(_fmt(cash_given), width)}\n")
         if change_given > 0:
             printer.text(f"  Буцаалт: {_rpad(_fmt(change_given), width)}\n")
     elif payment_type == "card":
-        printer.text(f"Төлбөр: Карт\n")
+        printer.text("Төлбөр: Карт\n")
         printer.text(f"  Карт: {_rpad(_fmt(sale_data.get('card_amount', 0)), width)}\n")
     elif payment_type == "qr":
-        printer.text(f"Төлбөр: QR\n")
-        printer.text(f"  QR: {_rpad(_fmt(sale_data.get('card_amount', total if 'total' in sale_data else 0)), width)}\n")
+        printer.text("Төлбөр: QR\n")
+        printer.text(f"  QR: {_rpad(_fmt(sale_data.get('card_amount', sale_data.get('total', 0))), width)}\n")
     elif payment_type == "split":
-        printer.text(f"Төлбөр: Холимог\n")
+        printer.text("Төлбөр: Холимог\n")
         printer.text(f"  Карт: {_rpad(_fmt(sale_data.get('card_amount', 0)), width)}\n")
         printer.text(f"  Бэлэн: {_rpad(_fmt(sale_data.get('cash_amount', 0)), width)}\n")
     printer.text("-" * width + "\n")
@@ -272,8 +302,20 @@ def _print_footer(printer, width):
 
 
 def _fmt(amount):
-    return f"{int(amount):,} ₮"
+    if amount is None:
+        amount = 0
+    return f"{int(round(float(amount))):,} ₮"
 
 
 def _rpad(text, width=32):
+    if len(text) > width:
+        text = text[:width]
     return text.rjust(width)
+
+
+def _rfmt(amount, width=32):
+    return _rpad(_fmt(amount), width)
+
+
+def _print_separator(printer, width):
+    printer.text("-" * width + "\n")

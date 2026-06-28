@@ -119,11 +119,9 @@ function setQuickFilter(type) {
                     <a href="{{ url_for('sale_detail', sale_id=s.id) }}" class="btn btn-sm btn-secondary">
                         👁
                     </a>
-                    {% if s.payment_type != 'return' and not s.return_of_sale_id %}
-                    <button class="btn btn-sm btn-warning" onclick="confirmReturn({{ s.id }}, {{ s.total }})">
-                        ↩
+                    <button class="btn btn-sm btn-primary" onclick="reprintEbarimt({{ s.id }})" title="eBarimt дахин хэвлэх">
+                        🖨
                     </button>
-                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
@@ -159,18 +157,20 @@ function setQuickFilter(type) {
 {% endif %}
 
 <script>
-function confirmReturn(saleId, total) {
-    if (!confirm('Борлуулалт #' + saleId + '-ыг буцаах уу?\nБуцаалтын дүн: ' + Number(total).toLocaleString('mn-MN') + ' ₮')) {
-        return;
-    }
-    fetch('/api/return/' + saleId, { method: 'POST' })
+function reprintEbarimt(saleId) {
+    if (!confirm('Баримтыг дахин хэвлэх үү?\neBarimt амжилтгүй бол дахин илгээгдэнэ.')) return;
+    fetch('/api/reprint/' + saleId, { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
-                alert('Буцаалт амжилттай хийгдлээ!');
+                var msg = 'Баримт хэвлэгдлээ!';
+                if (data.ebarimt_retried) {
+                    msg += data.ebarimt_success ? ' eBarimt илгээгдлээ.' : ' eBarimt илгээгдсэнгүй.';
+                }
+                alert(msg);
                 location.reload();
             } else {
-                alert(data.error || 'Буцаалт амжилтгүй');
+                alert('Хэвлэх алдаа: ' + (data.error || 'Тодорхойгүй'));
             }
         })
         .catch(function() { alert('Сүлжээний алдаа'); });

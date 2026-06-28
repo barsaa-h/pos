@@ -12,7 +12,6 @@ Responsibilities:
 
 import os
 import sqlite3
-import shutil
 import logging
 import hashlib
 import threading
@@ -26,6 +25,8 @@ except ImportError:
     BCRYPT_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("POS_DB_PATH") or os.path.join(BASE_DIR, "pos.db")
@@ -54,6 +55,8 @@ def _get_persistent_connection():
             _db_connection.execute("PRAGMA cache_size=-64000")
             _db_connection.execute("PRAGMA temp_store=MEMORY")
             _db_connection.execute("PRAGMA mmap_size=268435456")
+            journal_mode = _db_connection.execute("PRAGMA journal_mode").fetchone()[0]
+            logger.info(f"DB: {journal_mode} mode, sync={sync_mode}")
         return _db_connection
 
 
@@ -71,22 +74,47 @@ def get_connection():
         if row and row["value"] in ("NORMAL", "FULL"):
             sync_mode = row["value"]
     except Exception:
+        logger.warning("Unhandled exception in: except Exception:")
         pass
     conn.execute(f"PRAGMA synchronous={sync_mode}")
     return conn
 
 
+_cached_sync_mode = None
+
+_thread_local = threading.local()
+
+def _get_thread_connection():
+    global _cached_sync_mode
+    if not hasattr(_thread_local, 'conn') or _thread_local.conn is None:
+        _thread_local.conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+        _thread_local.conn.row_factory = sqlite3.Row
+        _thread_local.conn.execute("PRAGMA journal_mode=WAL")
+        _thread_local.conn.execute("PRAGMA foreign_keys=ON")
+        _thread_local.conn.execute("PRAGMA cache_size=-64000")
+        _thread_local.conn.execute("PRAGMA temp_store=MEMORY")
+        _thread_local.conn.execute("PRAGMA mmap_size=268435456")
+        if _cached_sync_mode is None:
+            try:
+                row = _thread_local.conn.execute(
+                    "SELECT value FROM settings WHERE key = ?", ("db_sync_mode",)
+                ).fetchone()
+                _cached_sync_mode = row["value"] if row and row["value"] in ("NORMAL", "FULL") else "FULL"
+            except Exception:
+                _cached_sync_mode = "FULL"
+        _thread_local.conn.execute(f"PRAGMA synchronous={_cached_sync_mode}")
+    return _thread_local.conn
+
+
 @contextmanager
 def get_db():
-    conn = get_connection()
+    conn = _get_thread_connection()
     try:
         yield conn
         conn.commit()
     except Exception:
         conn.rollback()
         raise
-    finally:
-        conn.close()
 
 
 def _get_password_salt():
@@ -96,11 +124,13 @@ def _get_password_salt():
         if salt and len(salt) >= 16:
             return salt
     except Exception:
+        logger.warning("Unhandled exception in: except Exception:")
         pass
     salt = hashlib.sha256(os.urandom(32)).hexdigest()[:32]
     try:
         set_setting("password_salt", salt)
     except Exception:
+        logger.warning("Unhandled exception in: except Exception:")
         pass
     return salt
 
@@ -141,14 +171,33 @@ def init_db():
         count = cursor.fetchone()[0]
         if count == 0:
             _seed_data(conn)
-            logger.info("Database seeded with default data.")
+            logger.info("Database initialized with default settings (no products).")
         else:
             logger.info("Database already initialized, skipping seed.")
 
     migrate_db()
 
+    orphans = audit_orphans()
+    if orphans:
+        logger.warning(f"FK orphan audit found issues: {orphans}")
+    else:
+        logger.info("FK orphan audit: clean")
+
 
 def migrate_db():
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pre_migration_backup = os.path.join(BACKUP_DIR, f"pos_pre_migration_{ts}.db")
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        source = get_connection()
+        dest = sqlite3.connect(pre_migration_backup)
+        source.backup(dest)
+        dest.close()
+        source.close()
+        logger.info(f"Pre-migration backup created: {pre_migration_backup}")
+    except Exception as e:
+        logger.warning(f"Pre-migration backup failed (non-fatal): {e}")
+
     with get_db() as conn:
         cursor = conn.execute(
             "SELECT COUNT(*) FROM settings WHERE key = 'admin_password_hash'"
@@ -253,9 +302,6 @@ def migrate_db():
             conn.execute("ALTER TABLE products ADD COLUMN expiry_date TEXT DEFAULT ''")
             logger.info("Migration: expiry_date column added")
 
-        # Migration: Add index on stock_adjustments.created_at
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_stock_adj_created ON stock_adjustments(created_at)")
-
         # Migration: Add image_url and supplier_id to products table
         cursor = conn.execute("PRAGMA table_info(products)")
         pcols = [c[1] for c in cursor.fetchall()]
@@ -286,35 +332,75 @@ def migrate_db():
         cursor = conn.execute("PRAGMA table_info(sales)")
         pt_cols = [c for c in cursor.fetchall() if c[1] == 'payment_type']
         if pt_cols:
+            old_cols = [c[1] for c in conn.execute("PRAGMA table_info(sales)").fetchall()]
+            has_qpay = 'qpay_invoice_id' in old_cols
             conn.execute("PRAGMA foreign_keys=OFF")
-            conn.executescript("""
-                DROP TABLE IF EXISTS sales_new;
-                CREATE TABLE sales_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    cashier_id INTEGER,
-                    payment_type TEXT DEFAULT 'cash' CHECK(payment_type IN ('cash', 'card', 'split', 'qr', 'return')),
-                    subtotal INTEGER NOT NULL DEFAULT 0,
-                    total INTEGER NOT NULL DEFAULT 0,
-                    cash_given INTEGER DEFAULT 0,
-                    change_given INTEGER DEFAULT 0,
-                    card_amount INTEGER DEFAULT 0,
-                    cash_amount INTEGER DEFAULT 0,
-                    ebarimt_id TEXT DEFAULT '',
-                    ebarimt_qr TEXT DEFAULT '',
-                    ebarimt_status TEXT DEFAULT 'pending'
-                        CHECK(ebarimt_status IN ('pending', 'sent', 'failed', 'skipped')),
-                    created_at TEXT DEFAULT (datetime('now', 'localtime')),
-                    return_of_sale_id INTEGER DEFAULT NULL,
-                    ebarimt_lottery TEXT DEFAULT '',
-                    FOREIGN KEY (cashier_id) REFERENCES cashiers(id)
-                );
-                INSERT INTO sales_new SELECT * FROM sales;
-                DROP TABLE sales;
-                ALTER TABLE sales_new RENAME TO sales;
-                CREATE INDEX IF NOT EXISTS idx_sales_created ON sales(created_at);
-                CREATE INDEX IF NOT EXISTS idx_sales_ebarimt ON sales(ebarimt_status);
-                CREATE INDEX IF NOT EXISTS idx_sales_return_of ON sales(return_of_sale_id);
-            """)
+            if has_qpay:
+                terminal_cols = ""
+                if 'terminal_txn_id' in old_cols:
+                    terminal_cols = ", terminal_txn_id TEXT DEFAULT '', terminal_status TEXT DEFAULT ''"
+                conn.executescript(f"""
+                    DROP TABLE IF EXISTS sales_new;
+                    CREATE TABLE sales_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        cashier_id INTEGER,
+                        payment_type TEXT DEFAULT 'cash' CHECK(payment_type IN ('cash', 'card', 'split', 'qr', 'return')),
+                        subtotal INTEGER NOT NULL DEFAULT 0,
+                        total INTEGER NOT NULL DEFAULT 0,
+                        cash_given INTEGER DEFAULT 0,
+                        change_given INTEGER DEFAULT 0,
+                        card_amount INTEGER DEFAULT 0,
+                        cash_amount INTEGER DEFAULT 0,
+                        ebarimt_id TEXT DEFAULT '',
+                        ebarimt_qr TEXT DEFAULT '',
+                        ebarimt_status TEXT DEFAULT 'pending'
+                            CHECK(ebarimt_status IN ('pending', 'sent', 'failed', 'skipped')),
+                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        return_of_sale_id INTEGER DEFAULT NULL,
+                        ebarimt_lottery TEXT DEFAULT '',
+                        qpay_invoice_id TEXT DEFAULT '',
+                        qpay_payment_status TEXT DEFAULT 'none'{terminal_cols},
+                        FOREIGN KEY (cashier_id) REFERENCES cashiers(id)
+                    );
+                    INSERT INTO sales_new SELECT * FROM sales;
+                    DROP TABLE sales;
+                    ALTER TABLE sales_new RENAME TO sales;
+                    CREATE INDEX IF NOT EXISTS idx_sales_created ON sales(created_at);
+                    CREATE INDEX IF NOT EXISTS idx_sales_ebarimt ON sales(ebarimt_status);
+                    CREATE INDEX IF NOT EXISTS idx_sales_return_of ON sales(return_of_sale_id);
+                """)
+            else:
+                term_cols2 = ""
+                if 'terminal_txn_id' in old_cols:
+                    term_cols2 = ", terminal_txn_id TEXT DEFAULT '', terminal_status TEXT DEFAULT ''"
+                conn.executescript(f"""
+                    DROP TABLE IF EXISTS sales_new;
+                    CREATE TABLE sales_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        cashier_id INTEGER,
+                        payment_type TEXT DEFAULT 'cash' CHECK(payment_type IN ('cash', 'card', 'split', 'qr', 'return')),
+                        subtotal INTEGER NOT NULL DEFAULT 0,
+                        total INTEGER NOT NULL DEFAULT 0,
+                        cash_given INTEGER DEFAULT 0,
+                        change_given INTEGER DEFAULT 0,
+                        card_amount INTEGER DEFAULT 0,
+                        cash_amount INTEGER DEFAULT 0,
+                        ebarimt_id TEXT DEFAULT '',
+                        ebarimt_qr TEXT DEFAULT '',
+                        ebarimt_status TEXT DEFAULT 'pending'
+                            CHECK(ebarimt_status IN ('pending', 'sent', 'failed', 'skipped')),
+                        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+                        return_of_sale_id INTEGER DEFAULT NULL,
+                        ebarimt_lottery TEXT DEFAULT ''{term_cols2},
+                        FOREIGN KEY (cashier_id) REFERENCES cashiers(id)
+                    );
+                    INSERT INTO sales_new SELECT * FROM sales;
+                    DROP TABLE sales;
+                    ALTER TABLE sales_new RENAME TO sales;
+                    CREATE INDEX IF NOT EXISTS idx_sales_created ON sales(created_at);
+                    CREATE INDEX IF NOT EXISTS idx_sales_ebarimt ON sales(ebarimt_status);
+                    CREATE INDEX IF NOT EXISTS idx_sales_return_of ON sales(return_of_sale_id);
+                """)
             conn.execute("PRAGMA foreign_keys=ON")
             logger.info("Migration: Updated sales payment_type CHECK to include 'qr'")
 
@@ -335,24 +421,9 @@ def migrate_db():
             response_json TEXT NOT NULL,
             created_at TEXT DEFAULT (datetime('now', 'localtime'))
         )""")
-
-        # Migration: Create shifts table
-        conn.execute("""CREATE TABLE IF NOT EXISTS shifts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            opened_at TEXT DEFAULT (datetime('now', 'localtime')),
-            closed_at TEXT DEFAULT '',
-            opening_balance INTEGER DEFAULT 0,
-            expected_cash INTEGER DEFAULT 0,
-            actual_cash INTEGER DEFAULT 0,
-            difference INTEGER DEFAULT 0,
-            cash_sales_total INTEGER DEFAULT 0,
-            card_sales_total INTEGER DEFAULT 0,
-            qr_sales_total INTEGER DEFAULT 0,
-            return_total INTEGER DEFAULT 0,
-            sale_count INTEGER DEFAULT 0,
-            return_count INTEGER DEFAULT 0
-        )""")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_shifts_opened ON shifts(opened_at)")
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('schema_version', '1')"
+        )
 
         cursor = conn.execute("SELECT COUNT(*) FROM categories")
         if cursor.fetchone()[0] == 0:
@@ -380,18 +451,115 @@ def migrate_db():
                 )
             logger.info("Migration: Categories table seeded successfully")
 
+        # Migration: Add QPay columns to sales table
+        cursor = conn.execute("PRAGMA table_info(sales)")
+        col_names = [c[1] for c in cursor.fetchall()]
+        if 'qpay_invoice_id' not in col_names:
+            logger.info("Migration: Adding qpay_invoice_id column to sales table...")
+            conn.execute("ALTER TABLE sales ADD COLUMN qpay_invoice_id TEXT DEFAULT ''")
+            conn.execute("ALTER TABLE sales ADD COLUMN qpay_payment_status TEXT DEFAULT 'none'")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sales_qpay_invoice ON sales(qpay_invoice_id)")
+            logger.info("Migration: QPay columns added to sales table")
+
+        # Migration: Create qpay_pending table for pre-sale invoice tracking
+        conn.execute("""CREATE TABLE IF NOT EXISTS qpay_pending (
+            invoice_id TEXT PRIMARY KEY,
+            cart_data TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            status TEXT DEFAULT 'pending',
+            paid_amount INTEGER DEFAULT 0,
+            sale_id INTEGER DEFAULT NULL,
+            created_at TEXT DEFAULT (datetime('now', 'localtime')),
+            paid_at TEXT DEFAULT NULL
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_qpay_pending_status ON qpay_pending(status)")
+        cursor = conn.execute("PRAGMA table_info(qpay_pending)")
+        qp_cols = [c[1] for c in cursor.fetchall()]
+        if 'invoice_code' not in qp_cols:
+            try:
+                conn.execute("ALTER TABLE qpay_pending ADD COLUMN invoice_code TEXT DEFAULT ''")
+            except Exception:
+                logger.warning("Unhandled exception in: except Exception:")
+                pass
+        # Migration: Drop shifts table (shift management removed)
+        conn.execute("DROP TABLE IF EXISTS shifts")
+
+        # Migration: Add discount_amount column to sale_items
+        cursor = conn.execute("PRAGMA table_info(sale_items)")
+        si_cols = [c[1] for c in cursor.fetchall()]
+        if 'discount_amount' not in si_cols:
+            try:
+                conn.execute("ALTER TABLE sale_items ADD COLUMN discount_amount INTEGER DEFAULT 0")
+                logger.info("Migration: discount_amount column added to sale_items table")
+            except Exception:
+                logger.warning("Unhandled exception in: except Exception:")
+                pass
+        # Migration: Add PAX terminal columns to sales table
+        cursor = conn.execute("PRAGMA table_info(sales)")
+        col_names = [c[1] for c in cursor.fetchall()]
+        if 'terminal_txn_id' not in col_names:
+            logger.info("Migration: Adding terminal_txn_id column to sales table...")
+            conn.execute("ALTER TABLE sales ADD COLUMN terminal_txn_id TEXT DEFAULT ''")
+            logger.info("Migration: terminal_txn_id column added")
+        if 'terminal_status' not in col_names:
+            logger.info("Migration: Adding terminal_status column to sales table...")
+            conn.execute("ALTER TABLE sales ADD COLUMN terminal_status TEXT DEFAULT ''")
+            logger.info("Migration: terminal_status column added")
+
+        # Migration: Remove UNIQUE constraint on barcode — items without
+        # barcodes (potatoes, carrots, custom items) must not collide.
+        cursor = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='products'")
+        existing_sql = (cursor.fetchone() or [""])[0]
+        has_unique_bc = ('barcode TEXT UNIQUE' in existing_sql or
+                         'barcode TEXT NOT NULL UNIQUE' in existing_sql or
+                         '"barcode"' in existing_sql and 'UNIQUE' in existing_sql)
+        # Also check via PRAGMA index_list for a UNIQUE index on barcode
+        unique_indexes = conn.execute("""
+            SELECT il.name FROM pragma_index_list('products') il
+            JOIN pragma_index_info(il.name) ii ON 1
+            WHERE il.\"unique\" = 1 AND ii.name = 'barcode'
+        """).fetchall()
+        if has_unique_bc or unique_indexes:
+            logger.info("Migration: Removing UNIQUE constraint from products.barcode...")
+            conn.executescript("""
+                PRAGMA foreign_keys=OFF;
+                DROP TABLE IF EXISTS products_new;
+                CREATE TABLE products_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    barcode TEXT DEFAULT '',
+                    name TEXT NOT NULL,
+                    price INTEGER NOT NULL CHECK(price >= 0),
+                    cost_price INTEGER DEFAULT 0,
+                    category TEXT DEFAULT 'Бусад',
+                    unit TEXT DEFAULT 'ш',
+                    expiry_date TEXT DEFAULT '',
+                    image_url TEXT DEFAULT '',
+                    supplier_id INTEGER DEFAULT NULL,
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+                );
+                INSERT INTO products_new SELECT * FROM products;
+                DROP TABLE products;
+                ALTER TABLE products_new RENAME TO products;
+                PRAGMA foreign_keys=ON;
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_products_supplier ON products(supplier_id)")
+            logger.info("Migration: barcode UNIQUE constraint removed")
+
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    barcode TEXT UNIQUE NOT NULL,
+    barcode TEXT DEFAULT '',
     name TEXT NOT NULL,
     price INTEGER NOT NULL CHECK(price >= 0),
     cost_price INTEGER DEFAULT 0,
     category TEXT DEFAULT 'Бусад',
-    stock_qty INTEGER DEFAULT 0 CHECK(stock_qty >= 0),
     unit TEXT DEFAULT 'ш',
-    low_stock_threshold INTEGER DEFAULT 5,
     expiry_date TEXT DEFAULT '',
     image_url TEXT DEFAULT '',
     supplier_id INTEGER DEFAULT NULL,
@@ -436,7 +604,21 @@ CREATE TABLE IF NOT EXISTS sales (
         CHECK(ebarimt_status IN ('pending', 'sent', 'failed', 'skipped')),
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     return_of_sale_id INTEGER DEFAULT NULL,
+    qpay_invoice_id TEXT DEFAULT '',
+    qpay_payment_status TEXT DEFAULT 'none',
     FOREIGN KEY (cashier_id) REFERENCES cashiers(id)
+);
+
+CREATE TABLE IF NOT EXISTS qpay_pending (
+    invoice_id TEXT PRIMARY KEY,
+    cart_data TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    status TEXT DEFAULT 'pending',
+    paid_amount INTEGER DEFAULT 0,
+    sale_id INTEGER DEFAULT NULL,
+    invoice_code TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    paid_at TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS cash_drawer_log (
@@ -445,22 +627,6 @@ CREATE TABLE IF NOT EXISTS cash_drawer_log (
     amount INTEGER DEFAULT 0,
     note TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
-);
-
-CREATE TABLE IF NOT EXISTS shifts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    opened_at TEXT DEFAULT (datetime('now', 'localtime')),
-    closed_at TEXT DEFAULT '',
-    opening_balance INTEGER DEFAULT 0,
-    expected_cash INTEGER DEFAULT 0,
-    actual_cash INTEGER DEFAULT 0,
-    difference INTEGER DEFAULT 0,
-    cash_sales_total INTEGER DEFAULT 0,
-    card_sales_total INTEGER DEFAULT 0,
-    qr_sales_total INTEGER DEFAULT 0,
-    return_total INTEGER DEFAULT 0,
-    sale_count INTEGER DEFAULT 0,
-    return_count INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS idempotency_keys (
@@ -479,6 +645,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
     quantity REAL NOT NULL,
     unit_price INTEGER NOT NULL CHECK(unit_price >= 0),
     subtotal INTEGER NOT NULL DEFAULT 0,
+    discount_amount INTEGER DEFAULT 0,
     FOREIGN KEY (sale_id) REFERENCES sales(id),
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
@@ -496,23 +663,11 @@ CREATE TABLE IF NOT EXISTS categories (
     sort_order INTEGER DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS stock_adjustments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER NOT NULL,
-    quantity_change INTEGER NOT NULL,
-    reason TEXT DEFAULT '',
-    cashier_id INTEGER,
-    created_at TEXT DEFAULT (datetime('now', 'localtime')),
-    FOREIGN KEY (product_id) REFERENCES products(id),
-    FOREIGN KEY (cashier_id) REFERENCES cashiers(id)
-);
-
 CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
 CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active);
 CREATE INDEX IF NOT EXISTS idx_sales_created ON sales(created_at);
 CREATE INDEX IF NOT EXISTS idx_sales_ebarimt ON sales(ebarimt_status);
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
-CREATE INDEX IF NOT EXISTS idx_stock_adj_product ON stock_adjustments(product_id);
 CREATE INDEX IF NOT EXISTS idx_categories_name ON categories(name);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
@@ -530,37 +685,25 @@ CREATE TABLE IF NOT EXISTS held_orders (
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL DEFAULT '',
+    entity_id TEXT DEFAULT '',
+    details TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_held_orders_created ON held_orders(created_at);
 """
 
 
 def _seed_data(conn):
-    products = [
-        ("8901234567890", "Сүү 1л (Сүү ХК)", 4500, "Сүүн бүтээгдэхүүн", 50, "ш", 10),
-        ("8901234567891", "Талх (Атар)", 3200, "Талх нарийн боов", 30, "ш", 10),
-        ("8901234567892", "Өндөг 10ш (Өндөг)", 8500, "Өндөг", 20, "хайрцаг", 5),
-        ("8901234567893", "Цагаан будаа 1кг", 5800, "Будаа", 40, "кг", 8),
-        ("8901234567894", "Гоймон 400г (Гоймон)", 2800, "Гоймон", 60, "ш", 10),
-        ("8901234567895", "Ургамлын тос 1л", 9500, "Тос", 25, "ш", 5),
-        ("8901234567896", "Элсэн чихэр 1кг", 4200, "Чихэр", 35, "кг", 8),
-        ("8901234567897", "Давс 500г", 1500, "Давс амтлагч", 45, "ш", 10),
-        ("8901234567898", "Алим 1кг (Фүжи)", 7800, "Жимс", 15, "кг", 5),
-        ("8901234567899", "Ус 1.5л (Оргил)", 2500, "Ус ундаа", 80, "ш", 15),
-    ]
-    for barcode, name, price, category, stock, unit, threshold in products:
-        conn.execute(
-            """INSERT INTO products
-               (barcode, name, price, category, stock_qty, unit, low_stock_threshold)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (barcode, name, price, category, stock, unit, threshold)
-        )
-
     default_settings = {
-        "store_name": "Миний дэлгүүр",
+        "store_name": "Моност",
         "store_address": "Улаанбаатар, БЗД, 1-р хороо",
         "store_phone": "70112233",
         "printer_port": "/dev/usb/lp0",
-        "low_stock_default": "5",
         "ebarimt_api_url": "",
         "ebarimt_ttd": "",
         "ebarimt_branch_id": "",
@@ -569,6 +712,7 @@ def _seed_data(conn):
         "last_backup_date": "",
         "admin_password_hash": "",
         "admin_session_timeout_minutes": "480",
+        "schema_version": "1",
     }
     for key, value in default_settings.items():
         conn.execute(
@@ -745,29 +889,34 @@ def delete_supplier(supplier_id):
     return True
 
 
-def get_supplier_products(supplier_id):
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM products WHERE supplier_id = ? AND is_active = 1 ORDER BY name",
-            (supplier_id,)
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
 # ─────────────────────────────────────────────
 # PRODUCT QUERIES
 # ─────────────────────────────────────────────
 
-def get_all_products(active_only=True):
+def get_all_products(active_only=True, limit=None, offset=None, category=None):
     with get_db() as conn:
+        parts = ["SELECT * FROM products"]
+        conds = []
         if active_only:
-            rows = conn.execute(
-                "SELECT * FROM products WHERE is_active = 1 ORDER BY name"
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM products ORDER BY name"
-            ).fetchall()
+            conds.append("is_active = 1")
+        if category:
+            conds.append("category = ?")
+        if conds:
+            parts.append("WHERE " + " AND ".join(conds))
+        parts.append("ORDER BY name")
+        if limit is not None:
+            parts.append("LIMIT ?")
+        if offset is not None:
+            parts.append("OFFSET ?")
+        sql = " ".join(parts)
+        params = []
+        if category:
+            params.append(category)
+        if limit is not None:
+            params.append(limit)
+        if offset is not None:
+            params.append(offset)
+        rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -790,11 +939,9 @@ def get_product_by_id(product_id):
         return dict(row) if row else None
 
 
-def create_product(barcode, name, price, category="Бусад", stock_qty=0,
-                   unit="ш", low_stock_threshold=5, cost_price=0, expiry_date="",
+def create_product(barcode, name, price, category="Бусад",
+                   unit="ш", cost_price=0, expiry_date="",
                    image_url="", supplier_id=None):
-    if not barcode or not barcode.strip():
-        return None, "Баркод хоосон байж болохгүй"
     if not name or not name.strip():
         return None, "Нэр хоосон байж болохгүй"
     try:
@@ -806,12 +953,8 @@ def create_product(barcode, name, price, category="Бусад", stock_qty=0,
         return None, "Үнэ сөрөг байж болохгүй"
     if cost_price < 0:
         cost_price = 0
-    try:
-        stock_qty = int(stock_qty)
-    except (TypeError, ValueError):
-        return None, "Нөөц бүхэл тоо байх ёстой"
-    if stock_qty < 0:
-        return None, "Нөөц сөрөг байж болохгүй"
+
+    barcode_val = barcode.strip() if barcode else ""
 
     result = None
     error = None
@@ -819,39 +962,27 @@ def create_product(barcode, name, price, category="Бусад", stock_qty=0,
         try:
             cursor = conn.execute(
                 """INSERT INTO products
-                   (barcode, name, price, cost_price, category, stock_qty, unit, low_stock_threshold, expiry_date, image_url, supplier_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (barcode.strip(), name.strip(), price, cost_price, category.strip(),
-                 stock_qty, unit.strip(), low_stock_threshold, expiry_date.strip(),
+                   (barcode, name, price, cost_price, category, unit, expiry_date, image_url, supplier_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (barcode_val, name.strip(), price, cost_price, category.strip(),
+                 unit.strip(), expiry_date.strip(),
                  image_url.strip() if image_url else "", int(supplier_id) if supplier_id else None)
             )
             result = cursor.lastrowid
         except sqlite3.IntegrityError:
-            error = f"Баркод '{barcode}' аль хэдийн бүртгэгдсэн байна"
+            if barcode_val:
+                error = f"Баркод '{barcode_val}' аль хэдийн бүртгэгдсэн байна"
+            else:
+                error = "Бараа бүртгэхэд алдаа гарлаа"
     if result:
         ensure_category(category.strip())
     return result, error
 
 
-def update_or_create_product(barcode, name, price, category="Бусад", stock_qty=0, unit="ш"):
-    existing = None
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT id FROM products WHERE barcode = ?", (barcode.strip(),)
-        ).fetchone()
-        if row:
-            existing = row["id"]
-
-    if existing:
-        return update_product(existing, name=name, price=price, category=category, stock_qty=stock_qty, unit=unit)
-    else:
-        return create_product(barcode, name, price, category, stock_qty, unit)
-
-
 def update_product(product_id, **kwargs):
     allowed_fields = {
-        "barcode", "name", "price", "cost_price", "category", "stock_qty",
-        "unit", "low_stock_threshold", "expiry_date", "image_url", "supplier_id", "is_active"
+        "barcode", "name", "price", "cost_price", "category",
+        "unit", "expiry_date", "image_url", "supplier_id", "is_active"
     }
     updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
     if not updates:
@@ -864,14 +995,6 @@ def update_product(product_id, **kwargs):
             return False, "Үнэ бүхэл тоо байх ёстой"
         if updates["price"] < 0:
             return False, "Үнэ сөрөг байж болохгүй"
-
-    if "stock_qty" in updates:
-        try:
-            updates["stock_qty"] = int(updates["stock_qty"])
-        except (TypeError, ValueError):
-            return False, "Нөөц бүхэл тоо байх ёстой"
-        if updates["stock_qty"] < 0:
-            return False, "Нөөц сөрөг байж болохгүй"
 
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [product_id]
@@ -917,40 +1040,6 @@ def search_products(query, limit=50):
         return [dict(r) for r in rows]
 
 
-def get_low_stock_products():
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT * FROM products
-               WHERE is_active = 1 AND stock_qty <= low_stock_threshold
-               ORDER BY stock_qty ASC"""
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-def get_expiring_products(days=7):
-    """Get products with expiry date within the next `days` days (or already expired)."""
-    cutoff = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-    today = datetime.now().strftime("%Y-%m-%d")
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT * FROM products
-               WHERE is_active = 1 AND expiry_date != ''
-               AND expiry_date <= ?
-               ORDER BY expiry_date ASC""",
-            (cutoff,)
-        ).fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            try:
-                exp_date = datetime.strptime(d["expiry_date"], "%Y-%m-%d")
-                d["days_until_expiry"] = (exp_date - datetime.now()).days
-            except (ValueError, TypeError):
-                d["days_until_expiry"] = 0
-            result.append(d)
-        return result
-
-
 # ─────────────────────────────────────────────
 # CASH DRAWER QUERIES
 # ─────────────────────────────────────────────
@@ -994,148 +1083,8 @@ def get_today_cash_sales():
 
 
 # ─────────────────────────────────────────────
-# SHIFT MANAGEMENT (Z-Report / Reconciliation)
-# ─────────────────────────────────────────────
-
-def open_shift(opening_balance=0):
-    """Open a new shift. Auto-closes any open shift first."""
-    with get_db() as conn:
-        conn.execute("UPDATE shifts SET closed_at = datetime('now', 'localtime') WHERE closed_at = ''")
-        conn.execute(
-            "INSERT INTO shifts (opening_balance) VALUES (?)",
-            (opening_balance,)
-        )
-        return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-
-
-def ensure_shift_open():
-    """Ensure there's an open shift. Creates one if none exists."""
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT id FROM shifts WHERE closed_at = '' ORDER BY opened_at DESC LIMIT 1"
-        ).fetchone()
-        if row:
-            return row["id"]
-    return open_shift()
-
-
-def close_shift(actual_cash, closed_by=""):
-    """Close the current shift with the actual cash counted."""
-    with get_db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            "SELECT id, opened_at, opening_balance FROM shifts WHERE closed_at = '' ORDER BY opened_at DESC LIMIT 1"
-        ).fetchone()
-        if not row:
-            return None, "Нээлттэй ээлж байхгүй"
-
-        shift_id = row["id"]
-        opened_at = row["opened_at"]
-
-        stats = conn.execute(
-            """SELECT
-                COUNT(CASE WHEN payment_type != 'return' THEN 1 END) as sale_count,
-                COUNT(CASE WHEN payment_type = 'return' THEN 1 END) as return_count,
-                COALESCE(SUM(CASE WHEN payment_type = 'cash' AND payment_type != 'return' THEN cash_amount ELSE 0 END), 0) as cash_sales,
-                COALESCE(SUM(CASE WHEN payment_type = 'split' AND payment_type != 'return' THEN cash_amount ELSE 0 END), 0) as split_cash,
-                COALESCE(SUM(CASE WHEN payment_type = 'card' THEN card_amount ELSE 0 END), 0) as card_sales,
-                COALESCE(SUM(CASE WHEN payment_type = 'qr' THEN card_amount ELSE 0 END), 0) as qr_sales,
-                COALESCE(SUM(CASE WHEN payment_type = 'return' THEN total ELSE 0 END), 0) as return_total
-               FROM sales
-               WHERE created_at >= ? AND created_at <= datetime('now', 'localtime')""",
-            (opened_at,)
-        ).fetchone()
-
-        cash_sales = (stats["cash_sales"] or 0) + (stats["split_cash"] or 0)
-        expected = cash_sales + row["opening_balance"]
-        difference = actual_cash - expected
-
-        conn.execute(
-            """UPDATE shifts SET
-               closed_at = datetime('now', 'localtime'),
-               actual_cash = ?, expected_cash = ?, difference = ?,
-               cash_sales_total = ?, card_sales_total = ?, qr_sales_total = ?,
-               return_total = ?, sale_count = ?, return_count = ?
-               WHERE id = ?""",
-            (actual_cash, expected, difference,
-             cash_sales, stats["card_sales"] or 0, stats["qr_sales"] or 0,
-             stats["return_total"] or 0, stats["sale_count"] or 0, stats["return_count"] or 0,
-             shift_id)
-        )
-        return {
-            "id": shift_id, "opened_at": opened_at, "opening_balance": row["opening_balance"],
-            "cash_sales": cash_sales, "expected_cash": expected,
-            "actual_cash": actual_cash, "difference": difference,
-            "card_sales": stats["card_sales"] or 0, "qr_sales": stats["qr_sales"] or 0,
-            "return_total": stats["return_total"] or 0,
-            "sale_count": stats["sale_count"] or 0, "return_count": stats["return_count"] or 0,
-            "closed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        }, None
-
-
-def get_current_shift():
-    """Get the currently open shift or None."""
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM shifts WHERE closed_at = '' ORDER BY opened_at DESC LIMIT 1"
-        ).fetchone()
-        if not row:
-            return None
-        shift = dict(row)
-        # Calculate running totals
-        stats = conn.execute(
-            """SELECT
-                COUNT(CASE WHEN payment_type != 'return' THEN 1 END) as sale_count,
-                COALESCE(SUM(CASE WHEN payment_type IN ('cash', 'split') THEN cash_amount ELSE 0 END), 0) as running_cash,
-                COALESCE(SUM(CASE WHEN payment_type = 'card' THEN card_amount ELSE 0 END), 0) as running_card,
-                COALESCE(SUM(CASE WHEN payment_type = 'qr' THEN card_amount ELSE 0 END), 0) as running_qr
-               FROM sales
-               WHERE created_at >= ? AND created_at <= datetime('now', 'localtime')""",
-            (shift["opened_at"],)
-        ).fetchone()
-        shift["running_cash"] = stats["running_cash"] or 0
-        shift["running_card"] = (stats["running_card"] or 0) + (stats["running_qr"] or 0)
-        shift["running_sales"] = stats["sale_count"] or 0
-        return shift
-
-
-def get_shift_history(limit=30):
-    """Get closed shift history."""
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT * FROM shifts WHERE closed_at != '' ORDER BY closed_at DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
-# ─────────────────────────────────────────────
 # BULK OPERATIONS
 # ─────────────────────────────────────────────
-
-def bulk_update_prices(category, percent_change):
-    if not category:
-        return 0, "Ангилал сонгоно уу"
-    try:
-        percent_change = float(percent_change)
-    except (TypeError, ValueError):
-        return 0, "Хувь хүчингүй"
-    if percent_change <= -100:
-        return 0, "100%-аас их бууруулж болохгүй"
-
-    multiplier = 1 + (percent_change / 100)
-    count = 0
-    with get_db() as conn:
-        rows = conn.execute(
-            "SELECT id, price FROM products WHERE category = ? AND is_active = 1",
-            (category,)
-        ).fetchall()
-        for row in rows:
-            new_price = max(0, int(round(row["price"] * multiplier)))
-            conn.execute("UPDATE products SET price = ? WHERE id = ?", (new_price, row["id"]))
-            count += 1
-    return count, None
-
 
 def check_idempotency_key(key):
     """Check if an idempotency key was already used. Returns the saved response or None."""
@@ -1203,11 +1152,117 @@ def get_categories():
 
 
 # ─────────────────────────────────────────────
+# SALE QUOTE / VALIDATION
+# ─────────────────────────────────────────────
+
+def quote_sale(items, payment_type="card"):
+    """Validate cart items and return authoritative totals without writing a sale."""
+    if not items:
+        return None, "Сагс хоосон байна"
+
+    if payment_type not in ("cash", "card", "split", "qr"):
+        return None, f"Буруу төлбөрийн төрөл: {payment_type}"
+
+    validated_items = []
+    with get_db() as conn:
+        for item in items:
+            qty = item.get("quantity", 0)
+            try:
+                qty = float(qty)
+            except (TypeError, ValueError):
+                return None, f"Буруу тоо: {item.get('product_name', '?')}"
+            if qty <= 0:
+                return None, f"Тоо 0-ээс их байх ёстой: {item.get('product_name', '?')}"
+
+            pid = item.get("product_id")
+            barcode = (item.get("barcode") or "").strip()
+            product = None
+            if pid:
+                product = conn.execute(
+                    "SELECT id, name, barcode, price, is_active FROM products WHERE id = ?",
+                    (pid,)
+                ).fetchone()
+            elif barcode:
+                product = conn.execute(
+                    "SELECT id, name, barcode, price, is_active FROM products WHERE barcode = ? AND is_active = 1",
+                    (barcode,)
+                ).fetchone()
+
+            if product:
+                if not product["is_active"]:
+                    return None, f"Бараа идэвхгүй: {product['name']}"
+                product_id = product["id"]
+                product_name = product["name"]
+                barcode = product["barcode"] or barcode
+                unit_price = int(product["price"])
+            else:
+                product_id = pid
+                product_name = item.get("product_name", "")
+                try:
+                    unit_price = int(item.get("unit_price", 0))
+                except (TypeError, ValueError):
+                    return None, f"Буруу үнэ: {product_name or '?'}"
+                if unit_price < 0:
+                    return None, f"Үнэ сөрөг байж болохгүй: {product_name or '?'}"
+
+            try:
+                discount_amount = int(item.get("discount_amount", 0) or 0)
+            except (TypeError, ValueError):
+                discount_amount = 0
+            if discount_amount < 0:
+                discount_amount = 0
+
+            subtotal = int(qty * unit_price)
+            if discount_amount > subtotal:
+                discount_amount = 0
+            validated_items.append({
+                "product_id": product_id,
+                "product_name": product_name,
+                "barcode": barcode,
+                "quantity": qty,
+                "unit_price": unit_price,
+                "subtotal": subtotal,
+                "discount_amount": discount_amount,
+            })
+
+    subtotal = sum(item["subtotal"] for item in validated_items)
+    total_discount = sum(item["discount_amount"] for item in validated_items)
+    total = subtotal - total_discount
+    return {
+        "payment_type": payment_type,
+        "subtotal": subtotal,
+        "total_discount": total_discount,
+        "total": total,
+        "items": validated_items,
+    }, None
+
+
+# ─────────────────────────────────────────────
 # SALE QUERIES
 # ─────────────────────────────────────────────
 
+_integrity_check_counter = 0
+_integrity_check_lock = threading.Lock()
+_integrity_check_interval = 100
+
+
+def _maybe_integrity_check():
+    global _integrity_check_counter
+    with _integrity_check_lock:
+        _integrity_check_counter += 1
+        current = _integrity_check_counter
+    if current % _integrity_check_interval == 0:
+        try:
+            with get_db() as conn:
+                result = conn.execute("PRAGMA quick_check").fetchone()
+                logger.debug(f"Integrity check (sale #{current}): {result[0]}")
+        except Exception as e:
+            logger.warning(f"Integrity check failed: {e}")
+
+
 def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
-                card_amount=0, cash_amount=0, return_of_sale_id=None):
+                card_amount=0, cash_amount=0, return_of_sale_id=None,
+                terminal_txn_id=""):
     """
     Create a sale with server-side stock validation inside the transaction.
     For returns, payment_type='return' and quantities should be negative.
@@ -1222,6 +1277,7 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
     for item in items:
         qty = item.get("quantity", 0)
         unit_price = item.get("unit_price", 0)
+        discount_amount = item.get("discount_amount", 0)
 
         try:
             qty = float(qty)
@@ -1240,7 +1296,16 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
         if unit_price < 0:
             return None, f"Үнэ сөрөг байж болохгүй: {item.get('product_name', '?')}"
 
+        try:
+            discount_amount = int(discount_amount)
+        except (TypeError, ValueError):
+            discount_amount = 0
+        if discount_amount < 0:
+            discount_amount = 0
+
         item_subtotal = int(qty * unit_price)
+        if discount_amount > item_subtotal:
+            discount_amount = 0
         subtotal += item_subtotal
         validated_items.append({
             "product_id": item.get("product_id"),
@@ -1249,6 +1314,7 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
             "quantity": qty,
             "unit_price": unit_price,
             "subtotal": item_subtotal,
+            "discount_amount": discount_amount,
         })
 
     total = subtotal
@@ -1281,25 +1347,20 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
             if already > 0:
                 return None, "Энэ борлуулалт аль хэдийн буцаагдсан"
 
-        # Server-side stock and price validation (inside transaction with write lock)
+        # Server-side price validation (inside transaction with write lock)
         if not is_return:
             for item in validated_items:
                 pid = item["product_id"]
                 if not pid:
                     continue
                 product = conn.execute(
-                    "SELECT stock_qty, is_active, name, price FROM products WHERE id = ?",
+                    "SELECT is_active, name, price FROM products WHERE id = ?",
                     (pid,)
                 ).fetchone()
                 if not product:
                     return None, f"Бараа олдсонгүй: {item['product_name']}"
                 if not product["is_active"]:
                     return None, f"Бараа идэвхгүй: {product['name']}"
-                if product["stock_qty"] < item["quantity"]:
-                    return None, (
-                        f"Нөөц хүрэлцэхгүй: {product['name']}. "
-                        f"Одоо: {product['stock_qty']}, Хүсэлт: {int(item['quantity'])}"
-                    )
                 # Price validation: use DB price as authoritative source
                 if item["unit_price"] != product["price"]:
                     item["unit_price"] = product["price"]
@@ -1307,7 +1368,8 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
 
         # Recalculate totals after possible price corrections
         subtotal = sum(item["subtotal"] for item in validated_items)
-        total = subtotal
+        total_discount = sum(item["discount_amount"] for item in validated_items)
+        total = subtotal - total_discount
 
         # Calculate payment amounts with the corrected total
         if is_return:
@@ -1345,21 +1407,25 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
                 """INSERT INTO sales
                    (cashier_id, payment_type, subtotal, total,
                     cash_given, change_given, card_amount, cash_amount,
-                    ebarimt_status, return_of_sale_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+                    ebarimt_status, return_of_sale_id, terminal_txn_id, terminal_status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)""",
                 (cashier_id, payment_type, subtotal, total,
                  cash_given, change_given, card_amount, cash_amount,
-                 return_of_sale_id)
+                 return_of_sale_id, terminal_txn_id, terminal_txn_id and "approved" or "")
             )
         else:
+            terminal_status = ""
+            if terminal_txn_id:
+                terminal_status = "approved"
             cursor = conn.execute(
                 """INSERT INTO sales
                    (cashier_id, payment_type, subtotal, total,
                     cash_given, change_given, card_amount, cash_amount,
-                    ebarimt_status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')""",
+                    ebarimt_status, terminal_txn_id, terminal_status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
                 (cashier_id, payment_type, subtotal, total,
-                 cash_given, change_given, card_amount, cash_amount)
+                 cash_given, change_given, card_amount, cash_amount,
+                 terminal_txn_id, terminal_status)
             )
         sale_id = cursor.lastrowid
 
@@ -1367,26 +1433,12 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
             conn.execute(
                 """INSERT INTO sale_items
                    (sale_id, product_id, product_name, barcode,
-                    quantity, unit_price, subtotal)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    quantity, unit_price, subtotal, discount_amount)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (sale_id, item["product_id"], item["product_name"],
                  item["barcode"], item["quantity"], item["unit_price"],
-                 item["subtotal"])
+                 item["subtotal"], item["discount_amount"])
             )
-            if not is_return and item["product_id"]:
-                conn.execute(
-                    """UPDATE products
-                       SET stock_qty = MAX(0, stock_qty - ?)
-                       WHERE id = ?""",
-                    (int(item["quantity"]), item["product_id"])
-                )
-            elif is_return and item["product_id"]:
-                abs_qty = abs(int(item["quantity"]))
-                conn.execute(
-                    "UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?",
-                    (abs_qty, item["product_id"])
-                )
-
     sale = {
         "id": sale_id,
         "cashier_id": cashier_id,
@@ -1399,9 +1451,13 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
         "cash_amount": cash_amount,
         "ebarimt_status": "pending",
         "ebarimt_lottery": "",
+        "total_discount": total_discount,
         "return_of_sale_id": return_of_sale_id if is_return else None,
+        "terminal_txn_id": terminal_txn_id,
+        "terminal_status": terminal_txn_id and "approved" or "",
         "items": validated_items,
     }
+    _maybe_integrity_check()
     return sale, None
 
 
@@ -1771,8 +1827,12 @@ def set_setting(key, value):
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
             (key, str(value))
         )
-
-
+    try:
+        from config import invalidate_settings_cache
+        invalidate_settings_cache()
+    except Exception:
+        logger.warning("Unhandled exception in: except Exception:")
+        pass
 def set_settings(settings_dict):
     with get_db() as conn:
         for key, value in settings_dict.items():
@@ -1780,107 +1840,6 @@ def set_settings(settings_dict):
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                 (key, str(value))
             )
-
-
-# ─────────────────────────────────────────────
-# STOCK ADJUSTMENT QUERIES
-# ─────────────────────────────────────────────
-
-def adjust_stock(product_id, quantity_change, reason="", cashier_id=None):
-    try:
-        quantity_change = int(quantity_change)
-    except (TypeError, ValueError):
-        return False, "Тоо бүхэл байх ёстой"
-
-    if quantity_change == 0:
-        return False, "Өөрчлөлт 0 байж болохгүй"
-
-    with get_db() as conn:
-        product = conn.execute(
-            "SELECT stock_qty FROM products WHERE id = ?", (product_id,)
-        ).fetchone()
-        if not product:
-            return False, "Бараа олдсонгүй"
-
-        old_stock = product["stock_qty"]
-        new_stock = old_stock + quantity_change
-        if new_stock < 0:
-            return False, f"Нөөц хангалтгүй. Одоо: {old_stock}, Өөрчлөлт: {quantity_change}"
-
-        conn.execute(
-            "UPDATE products SET stock_qty = ? WHERE id = ?",
-            (new_stock, product_id)
-        )
-        conn.execute(
-            """INSERT INTO stock_adjustments
-               (product_id, quantity_change, reason, cashier_id)
-               VALUES (?, ?, ?, ?)""",
-            (product_id, quantity_change, reason, cashier_id)
-        )
-    return True, None, old_stock, old_stock + quantity_change
-
-
-def get_stock_adjustments(product_id=None, limit=100):
-    with get_db() as conn:
-        if product_id:
-            rows = conn.execute(
-                """SELECT sa.*, p.name as product_name, c.name as cashier_name
-                   FROM stock_adjustments sa
-                   LEFT JOIN products p ON sa.product_id = p.id
-                   LEFT JOIN cashiers c ON sa.cashier_id = c.id
-                   WHERE sa.product_id = ?
-                   ORDER BY sa.created_at DESC LIMIT ?""",
-                (product_id, limit)
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """SELECT sa.*, p.name as product_name, c.name as cashier_name
-                   FROM stock_adjustments sa
-                   LEFT JOIN products p ON sa.product_id = p.id
-                   LEFT JOIN cashiers c ON sa.cashier_id = c.id
-                   ORDER BY sa.created_at DESC LIMIT ?""",
-                (limit,)
-            ).fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            if d.get("cashier_name") is None:
-                d["cashier_name"] = ""
-            result.append(d)
-        return result
-
-
-def get_inventory_forecast():
-    with get_db() as conn:
-        days_back = 30
-        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
-        rows = conn.execute(
-            """SELECT
-                p.id, p.name, p.stock_qty, p.unit, p.low_stock_threshold,
-                p.category, p.is_active,
-                COALESCE((
-                    SELECT SUM(si.quantity) * 1.0 / ?
-                    FROM sale_items si
-                    JOIN sales s ON si.sale_id = s.id
-                    WHERE si.product_id = p.id
-                    AND s.payment_type != 'return'
-                    AND s.created_at >= ?
-                ), 0) as avg_daily
-                FROM products p
-                WHERE p.is_active = 1
-                ORDER BY p.name""",
-            (days_back, cutoff_date)
-        ).fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            d['avg_daily'] = round(d['avg_daily'], 2)
-            if d['avg_daily'] > 0:
-                d['days_remaining'] = int(d['stock_qty'] / d['avg_daily'])
-            else:
-                d['days_remaining'] = -1  # No sales data
-            result.append(d)
-        return result
 
 
 # ─────────────────────────────────────────────
@@ -1897,6 +1856,32 @@ def perform_daily_backup():
     return perform_manual_backup()
 
 
+def verify_backup(backup_path):
+    import shutil
+    if not os.path.exists(backup_path):
+        logger.error(f"Backup verification failed: file not found — {backup_path}")
+        return False
+    tmp_path = backup_path + ".verify_tmp"
+    try:
+        shutil.copy2(backup_path, tmp_path)
+        conn = sqlite3.connect(tmp_path)
+        result = conn.execute("PRAGMA integrity_check").fetchone()
+        conn.close()
+        ok = result[0] == "ok"
+        if ok:
+            logger.info(f"Backup verified OK: {backup_path}")
+        else:
+            logger.error(f"Backup integrity check FAILED: {backup_path} — {result[0]}")
+        return ok
+    except Exception as e:
+        logger.error(f"Backup verification error for {backup_path}: {e}")
+        return False
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            logger.warning("Unhandled exception in: except OSError:")
+            pass
 def perform_manual_backup():
     today = datetime.now().strftime("%Y-%m-%d")
     os.makedirs(BACKUP_DIR, exist_ok=True)
@@ -1910,10 +1895,19 @@ def perform_manual_backup():
         dest = sqlite3.connect(backup_path)
         source.backup(dest)
 
+        dest.close()
+        dest = None
+        source.close()
+        source = None
+
+        verify_ok = verify_backup(backup_path)
+        if not verify_ok:
+            logger.warning(f"Backup created but integrity check failed: {backup_filename}")
+
         set_setting("last_backup_date", today)
         _cleanup_old_backups()
 
-        logger.info(f"Backup created: {backup_path}")
+        logger.info(f"Backup created: {backup_path} (verified={verify_ok})")
         return True, f"Нөөц хуулбар амжилттай: {backup_filename}"
     except Exception as e:
         logger.error(f"Backup failed: {e}")
@@ -1992,3 +1986,128 @@ def get_held_order(order_id):
 def delete_held_order(order_id):
     with get_db() as conn:
         conn.execute("DELETE FROM held_orders WHERE id = ?", (order_id,))
+
+
+def check_db_integrity():
+    try:
+        with get_db() as conn:
+            result = conn.execute("PRAGMA integrity_check").fetchone()
+            return result[0] == "ok"
+    except Exception:
+        return False
+
+
+def _get_schema_version():
+    try:
+        v = get_setting("schema_version", "0")
+        return int(v)
+    except Exception:
+        return 0
+
+
+_ebarimt_locks: dict = {}
+
+
+def acquire_ebarimt_retry_lock(lock_id, timeout_minutes=30):
+    import time as _time
+    now = _time.time()
+    _cleanup_expired = [
+        k for k, v in _ebarimt_locks.items()
+        if v < now - (timeout_minutes * 60)
+    ]
+    for k in _cleanup_expired:
+        _ebarimt_locks.pop(k, None)
+    if lock_id in _ebarimt_locks:
+        return False
+    _ebarimt_locks[lock_id] = now
+    return True
+
+
+def release_ebarimt_retry_lock(lock_id):
+    _ebarimt_locks.pop(lock_id, None)
+
+
+def log_audit(action, entity_type, entity_id="", details=""):
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO audit_log (action, entity_type, entity_id, details) VALUES (?, ?, ?, ?)",
+                (action, entity_type, str(entity_id or ""), details)
+            )
+    except Exception:
+        logger.warning("Unhandled exception in: except Exception:")
+        pass
+def start_wal_checkpoint_thread():
+    import threading as _t
+    import time as _time
+    def _checkpoint_loop():
+        while True:
+            _time.sleep(120)
+            try:
+                with get_db() as conn:
+                    conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except Exception:
+                logger.warning("Unhandled exception in: except Exception:")
+                pass
+    _t.Thread(target=_checkpoint_loop, daemon=True, name="wal-checkpoint").start()
+
+
+def get_product_count(active_only=True, category=None):
+    with get_db() as conn:
+        if category:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM products WHERE is_active = 1 AND category = ?",
+                (category,)
+            ).fetchone()
+        elif active_only:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM products WHERE is_active = 1"
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM products"
+            ).fetchone()
+        return row["cnt"] if row else 0
+
+
+def get_categories_from_products(products):
+    seen = set()
+    result = []
+    for p in products:
+        cat = p.get("category") if isinstance(p, dict) else p["category"]
+        if cat and cat not in seen:
+            seen.add(cat)
+            result.append(cat)
+    return result
+
+
+def claim_idempotency_key(key):
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT key FROM idempotency_keys WHERE key = ?",
+            (key,)
+        ).fetchone()
+        if row:
+            return False
+        conn.execute(
+            "INSERT INTO idempotency_keys (key, sale_id, response_json) VALUES (?, 0, '')",
+            (key,)
+        )
+        return True
+
+
+def audit_orphans():
+    orphans = {}
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT si.id, si.sale_id, si.product_name FROM sale_items si "
+                "WHERE si.sale_id NOT IN (SELECT id FROM sales)"
+            ).fetchall()
+            if rows:
+                orphans["sale_items_orphans"] = [dict(r) for r in rows]
+                logger.warning(f"FK audit: found {len(rows)} orphaned sale_items "
+                               f"(sale_id references non-existent sales)")
+    except Exception as e:
+        logger.warning(f"FK audit failed: {e}")
+    return orphans

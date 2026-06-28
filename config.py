@@ -17,35 +17,81 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────
 
 DEFAULTS = {
-    "store_name": "Миний дэлгүүр",
+    "store_name": "Моност",
     "store_address": "Улаанбаатар",
     "store_phone": "",
     "printer_port": "/dev/usb/lp0",
-    "low_stock_default": "5",
     "ebarimt_api_url": "",
     "ebarimt_ttd": "",
     "ebarimt_branch_id": "",
     "ebarimt_merchant_tin": "",
+    "ebarimt_timeout": "5",
     "receipt_footer": "Баярлалаа! Дахин үйлчлүүлнэ үү.",
     "last_backup_date": "",
-    "admin_password_hash": "",  # Empty = not set yet, user sets on first admin unlock
+    "admin_password_hash": "",
     "default_payment_type": "cash",
     "auto_print_receipt": "true",
     "show_vat_on_receipt": "false",
+    "show_stock_warnings": "true",
+    "discounts_enabled": "false",
     "receipt_width": "32",
     "customer_display_timeout": "10",
     "customer_idle_message": "Тавтай морилно уу",
     "admin_session_timeout_minutes": "480",
+    "ui_language": "mn",
     "theme": "auto",
     "db_sync_mode": "FULL",
     "return_window_days": "30",
+    "backup_retention_days": "30",
+    "sales_retention_days": "730",
+    "terminal_enabled": "false",
+    "terminal_ip": "",
+    "terminal_port": "10009",
+    "qpay_enabled": "false",
+    "qpay_client_id": "",
+    "qpay_client_secret": "",
+    "qpay_base_url": "https://merchant.qpay.mn/v2",
+    "qpay_timeout": "15",
+    "qpay_allow_partial": "false",
+    "qpay_allow_exceed": "false",
+    # "low_perf_mode" — set to "true" on slow store computers (e.g. i5 2nd gen
+    # on Linux Mint XFCE) to disable expensive CSS animations and backdrop-filter.
+    "low_perf_mode": "false",
 }
+
+import threading as _threading  # noqa: E402 — kept near cache state for readability
+import time as _time  # noqa: E402 — kept near cache state for readability
+
+_settings_cache: dict = dict(DEFAULTS)
+_settings_cache_lock = _threading.Lock()
+_settings_cache_ttl = 30
+_settings_last_load = 0.0
+
+def _get_cached_settings():
+    global _settings_cache, _settings_last_load
+    now = _time.monotonic()
+    if now - _settings_last_load > _settings_cache_ttl:
+        with _settings_cache_lock:
+            if now - _settings_last_load > _settings_cache_ttl:
+                try:
+                    from database import get_all_settings
+                    fresh = dict(DEFAULTS)
+                    fresh.update(get_all_settings())
+                    _settings_cache = fresh
+                    _settings_last_load = now
+                except Exception as e:
+                    logger.warning("Failed to load settings from DB (cache miss): %s", e)
+    return _settings_cache
+
+
+def invalidate_settings_cache():
+    global _settings_last_load
+    _settings_last_load = 0.0
 
 # Flask configuration
 def _generate_secret_key():
     """Generate a random secret key. Saved to DB for persistence across restarts."""
     import secrets
-    import os as _os
     return secrets.token_hex(32)
 
 def _get_or_create_secret_key():
@@ -74,11 +120,8 @@ def _get_or_create_secret_key():
 
 FLASK_SECRET_KEY = _get_or_create_secret_key()
 FLASK_HOST = os.environ.get("POS_HOST", "0.0.0.0")
-FLASK_PORT = int(os.environ.get("POS_PORT", "5000"))
+FLASK_PORT = int(os.environ.get("POS_PORT", "8765"))
 FLASK_DEBUG = os.environ.get("POS_DEBUG", "0") == "1"
-
-# Session timeout: 8 hours in seconds
-SESSION_TIMEOUT_SECONDS = 8 * 60 * 60
 
 
 def get_config(key):
@@ -90,11 +133,8 @@ def get_config(key):
     and to handle the case where the DB hasn't been initialized yet.
     """
     try:
-        from database import get_setting
-        value = get_setting(key, DEFAULTS.get(key, ""))
-        return value
-    except Exception as e:
-        logger.warning(f"Could not read setting '{key}' from DB: {e}")
+        return _get_cached_settings().get(key, DEFAULTS.get(key, ""))
+    except Exception:
         return DEFAULTS.get(key, "")
 
 
@@ -103,14 +143,10 @@ def get_all_config():
     Get all configuration values as a dict.
     Merges DB settings on top of defaults.
     """
-    config = dict(DEFAULTS)
     try:
-        from database import get_all_settings
-        db_settings = get_all_settings()
-        config.update(db_settings)
-    except Exception as e:
-        logger.warning(f"Could not read settings from DB: {e}")
-    return config
+        return dict(_get_cached_settings())
+    except Exception:
+        return dict(DEFAULTS)
 
 
 def is_ebarimt_configured():
@@ -138,17 +174,3 @@ def get_store_info():
         "address": get_config("store_address"),
         "phone": get_config("store_phone"),
     }
-
-
-def is_admin_password_set():
-    """
-    Check if an admin password has been configured.
-    Returns True if admin_password_hash is non-empty.
-    """
-    password_hash = get_config("admin_password_hash")
-    return bool(password_hash)
-
-
-def get_admin_password_hash():
-    """Get the admin password hash from config."""
-    return get_config("admin_password_hash")

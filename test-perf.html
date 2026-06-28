@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="mn" data-perf="normal">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POS Performance Test</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, sans-serif; background: #f5f7fa; padding: 20px; }
+
+.controls { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+.controls h1 { font-size: 1.2rem; color: #333; }
+.btn { padding: 10px 20px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 0.9rem; }
+.btn-primary { background: #22c55e; color: #fff; }
+.btn-danger { background: #ef4444; color: #fff; }
+.badge { padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; }
+.badge-normal { background: #dbeafe; color: #1d4ed8; }
+.badge-low { background: #fef3c7; color: #b45309; }
+.fps { background: #333; color: #0f0; padding: 6px 14px; border-radius: 6px; font-family: monospace; font-size: 1.1rem; }
+
+.product-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px;
+    max-width: 900px;
+}
+
+/* ─── NORMAL MODE ─── */
+[data-perf="normal"] .product-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 16px 12px;
+    cursor: pointer;
+    transition: transform 200ms cubic-bezier(0.4,0,0.2,1), box-shadow 200ms cubic-bezier(0.4,0,0.2,1);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    min-height: 180px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+[data-perf="normal"] .product-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: var(--cat-color, #22c55e);
+    opacity: 0.8;
+    transition: transform 200ms cubic-bezier(0.4,0,0.2,1);
+    transform: scaleX(0);
+}
+[data-perf="normal"] .product-card:hover {
+    border-color: var(--cat-color, #22c55e);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+[data-perf="normal"] .product-card:hover::before { transform: scaleX(1); }
+[data-perf="normal"] .product-card:active {
+    transform: scale(0.97);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+[data-perf="normal"] .product-card .card-icon {
+    font-size: 2.5rem;
+    line-height: 1;
+    margin-bottom: 12px;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.06));
+    transition: transform 200ms cubic-bezier(0.4,0,0.2,1);
+}
+[data-perf="normal"] .product-card:hover .card-icon { transform: scale(1.08); }
+
+/* ─── LOW PERF MODE ─── */
+[data-perf="low"] .product-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 16px 12px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    min-height: 180px;
+    position: relative;
+    overflow: hidden;
+}
+[data-perf="low"] .product-card::before { content: none; }
+[data-perf="low"] .product-card:hover { border-color: var(--cat-color, #22c55e); }
+[data-perf="low"] .product-card:active { }
+[data-perf="low"] .product-card .card-icon { font-size: 2.5rem; line-height: 1; margin-bottom: 12px; }
+[data-perf="low"] .product-card:hover .card-icon { }
+
+[data-perf="low"] *,
+[data-perf="low"] *::before,
+[data-perf="low"] *::after {
+    animation: none !important;
+    transition: none !important;
+}
+
+.card-name { font-weight: 700; font-size: 0.9rem; color: #333; margin-bottom: 8px; }
+.card-price { font-weight: 800; font-size: 1rem; color: #22c55e; }
+
+.toggle-wrap { display: flex; gap: 8px; align-items: center; margin-top: 20px; }
+.toggle { position: relative; width: 52px; height: 28px; background: #e5e7eb; border-radius: 14px; cursor: pointer; transition: background 0.2s; }
+.toggle.active { background: #22c55e; }
+.toggle::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; background: #fff; border-radius: 50%; transition: transform 0.2s; }
+.toggle.active::after { transform: translateX(24px); }
+</style>
+</head>
+<body>
+
+<div class="controls">
+    <h1>⚡ POS Performance Test</h1>
+    <div id="fpsDisplay" class="fps">-- FPS</div>
+    <span id="modeBadge" class="badge badge-normal">NORMAL MODE</span>
+    <button class="btn btn-danger" onclick="addBurstItems()">➕ Add 50 items</button>
+    <button class="btn btn-primary" onclick="clearItems()">🗑 Clear</button>
+</div>
+
+<div class="toggle-wrap">
+    <span style="font-weight:600;">Low Performance Mode</span>
+    <div id="perfToggle" class="toggle" onclick="togglePerf()"></div>
+    <span id="perfLabel" style="font-size:0.85rem; color:#666;">OFF</span>
+</div>
+
+<div class="product-grid" id="productGrid"></div>
+
+<script>
+var isLow = false;
+var categories = ['Хүнс', 'Ундаа', 'Сүүн бүтээгдэхүүн', 'Талх нарийн боов', 'Гурилан бүтээгдэхүүн', 'Амттан', 'Хүүхдийн бараа', 'Гоо сайхан', 'Өрхийн хими', 'Цахилгаан бараа', 'Бусад'];
+var icons = { 'Хүнс':'🥩', 'Ундаа':'🥤', 'Сүүн бүтээгдэхүүн':'🧀', 'Талх нарийн боов':'🥐', 'Гурилан бүтээгдэхүүн':'🍝', 'Амттан':'🍫', 'Хүүхдийн бараа':'🧸', 'Гоо сайхан':'💄', 'Өрхийн хими':'🧹', 'Цахилгаан бараа':'💡', 'Бусад':'📦' };
+var colors = { 'Хүнс':'#22c55e', 'Ундаа':'#3b82f6', 'Сүүн бүтээгдэхүүн':'#a855f7', 'Талх нарийн боов':'#f59e0b', 'Гурилан бүтээгдэхүүн':'#ef4444', 'Амттан':'#ec4899', 'Хүүхдийн бараа':'#14b8a6', 'Гоо сайхан':'#f97316', 'Өрхийн хими':'#6366f1', 'Цахилгаан бараа':'#06b6d4', 'Бусад':'#6b7280' };
+var productCount = 0;
+
+function randomCat() { return categories[Math.floor(Math.random() * categories.length)]; }
+
+function addItems(count) {
+    var grid = document.getElementById('productGrid');
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < count; i++) {
+        productCount++;
+        var cat = randomCat();
+        var name = 'Бараа #' + productCount;
+        var price = Math.floor(Math.random() * 50000) + 500;
+        var card = document.createElement('div');
+        card.className = 'product-card';
+        card.style.setProperty('--cat-color', colors[cat]);
+        card.innerHTML = '<div class="card-icon">' + icons[cat] + '</div><div class="card-name">' + name + '</div><div class="card-price">' + price.toLocaleString() + ' ₮</div>';
+        frag.appendChild(card);
+    }
+    grid.appendChild(frag);
+    updateStats();
+}
+
+function addBurstItems() { addItems(50); }
+function clearItems() { document.getElementById('productGrid').innerHTML = ''; productCount = 0; updateStats(); }
+
+function togglePerf() {
+    isLow = !isLow;
+    document.documentElement.setAttribute('data-perf', isLow ? 'low' : 'normal');
+    document.getElementById('perfToggle').classList.toggle('active', isLow);
+    document.getElementById('perfLabel').textContent = isLow ? 'ON' : 'OFF';
+    document.getElementById('modeBadge').className = 'badge ' + (isLow ? 'badge-low' : 'badge-normal');
+    document.getElementById('modeBadge').textContent = isLow ? 'LOW PERF MODE' : 'NORMAL MODE';
+}
+
+function updateStats() {
+    var count = document.querySelectorAll('.product-card').length;
+}
+
+// FPS counter
+var frameCount = 0, lastFrameTime = performance.now();
+function countFrames() {
+    frameCount++;
+    var now = performance.now();
+    if (now - lastFrameTime >= 1000) {
+        document.getElementById('fpsDisplay').textContent = frameCount + ' FPS';
+        frameCount = 0;
+        lastFrameTime = now;
+    }
+    requestAnimationFrame(countFrames);
+}
+requestAnimationFrame(countFrames);
+
+// Seed initial items
+addItems(100);
+
+// Keyboard shortcut: press L to toggle
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'l' || e.key === 'L') togglePerf();
+});
+</script>
+</body>
+</html>

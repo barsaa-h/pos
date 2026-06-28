@@ -1,13 +1,23 @@
 #!/bin/bash
-# start.sh — Quick launcher for the POS system
-# Auto-detects platform and launches the correct desktop
+# POS Launcher — double-click this or run: ./start.sh
+# Usage: ./start.sh [--dev]
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+set -e
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
 
-if [ "$(uname -s)" = "Linux" ]; then
-    exec "$SCRIPT_DIR/ubuntu/start.sh" "$@"
+# Find Python 3
+if command -v python3 &>/dev/null; then
+    PYTHON=python3
+elif command -v python &>/dev/null; then
+    PYTHON=python
 else
-    echo "Error: This script is for Ubuntu. On Windows use: start.bat"
-    exit 1
+    if [ -f "venv/bin/python3" ]; then
+        PYTHON="venv/bin/python3"
+    else
+        echo "❌ Python 3 олдсонгүй. sudo apt install python3"
+        exit 1
+    fi
 fi
+
+exec "$PYTHON" desktop.py "$@"

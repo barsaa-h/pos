@@ -1,0 +1,15 @@
+# POS System — Development / Testing Dependencies
+# Install: pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+# Testing
+pytest>=7.0
+pytest-flask>=1.3
+pytest-cov>=6.0
+
+# Linting
+ruff>=0.8
+
+# Build (optional — for creating standalone executable)
+pyinstaller>=6.0

@@ -1,19 +1,39 @@
 <!DOCTYPE html>
-<html lang="mn">
+<html lang="mn" class="force-light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Миний дэлгүүр — Үйлчлүүлэгч</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <title>{{ store_info.name }} — Үйлчлүүлэгч</title>
+    <link rel="stylesheet" href="{{ static_url('style.css') }}">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+
+        :root {
+            --bg-start: #ffffff;
+            --bg-mid: #f8fafc;
+            --bg-end: #f1f5f9;
+            --text: #0f172a;
+            --text-secondary: #334155;
+            --text-muted: #475569;
+            --card-bg: #ffffff;
+            --card-border: #cbd5e1;
+            --card-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+            --accent-green: #15803d;
+            --accent-green-light: #dcfce7;
+            --accent-blue: #0369a1;
+            --accent-amber: #b45309;
+            --accent-amber-light: #fef3c7;
+            --total-bg: #f0fdf4;
+            --total-border: #86efac;
+            --icon-bg: #f1f5f9;
+        }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
-            color: #ffffff;
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-mid) 50%, var(--bg-end) 100%);
+            color: var(--text);
             min-height: 100vh;
             overflow: hidden;
         }
@@ -25,23 +45,24 @@
             display: flex;
             justify-content: flex-end;
             align-items: center;
-            padding: 16px 32px;
+            padding: 14px 28px;
             z-index: 100;
-            background: linear-gradient(to bottom, rgba(15,15,35,0.9) 0%, rgba(15,15,35,0) 100%);
-            pointer-events: none; /* Don't block clicks on content below */
+            background: linear-gradient(to bottom, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 100%);
+            pointer-events: none;
         }
         .store-name {
             font-size: 18px;
-            font-weight: 600;
-            color: rgba(255,255,255,0.6);
-            letter-spacing: 1px;
+            font-weight: 800;
+            color: var(--text-secondary);
+            letter-spacing: 0.5px;
             text-transform: uppercase;
         }
         .store-name .clock {
-            margin-left: 16px;
-            font-family: 'Courier New', monospace;
+            margin-left: 14px;
+            font-family: 'Inter', monospace;
             font-size: 16px;
-            color: rgba(255,255,255,0.4);
+            font-weight: 800;
+            color: var(--text-secondary);
         }
 
         /* ─── Main Display Container ─── */
@@ -50,7 +71,7 @@
             height: 100vh;
             display: flex;
             flex-direction: column;
-            padding: 60px 40px 30px 40px;
+            padding: 44px 20px 14px 20px;
         }
 
         /* ─── Views ─── */
@@ -60,9 +81,7 @@
             height: 100%;
             flex-direction: column;
         }
-        .view.active {
-            display: flex;
-        }
+        .view.active { display: flex; }
 
         /* ─── Idle Screen ─── */
         .idle-view {
@@ -72,97 +91,97 @@
         }
         .idle-view .welcome-icon {
             font-size: 120px;
-            margin-bottom: 30px;
+            margin-bottom: 24px;
             animation: float 3s ease-in-out infinite;
         }
         .idle-view h1 {
-            font-size: 72px;
+            font-size: 64px;
             font-weight: 900;
-            margin-bottom: 16px;
-            background: linear-gradient(135deg, #00ff88, #00ccff);
+            margin-bottom: 14px;
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
         .idle-view p {
-            font-size: 32px;
-            color: rgba(255,255,255,0.5);
-            font-weight: 400;
+            font-size: 28px;
+            color: var(--text);
+            font-weight: 700;
         }
 
         /* ─── Shopping Screen ─── */
         .shopping-view {
-            padding-top: 20px;
+            padding-top: 8px;
             display: flex;
             flex-direction: column;
             height: 100%;
         }
         .shopping-header {
             font-size: 24px;
-            font-weight: 600;
-            color: rgba(255,255,255,0.4);
+            font-weight: 800;
+            color: var(--text);
             margin-bottom: 12px;
             text-align: center;
-            letter-spacing: 2px;
-            text-transform: uppercase;
+            letter-spacing: 0.5px;
             flex-shrink: 0;
         }
         .item-count-badge {
             display: inline-block;
             padding: 4px 14px;
-            background: rgba(0,255,136,0.15);
-            color: #00ff88;
+            background: var(--accent-green-light);
+            color: var(--accent-green);
             border-radius: 20px;
-            font-size: 14px;
-            font-weight: 600;
-            margin-left: 10px;
+            font-size: 15px;
+            font-weight: 800;
+            margin-left: 8px;
             vertical-align: middle;
+            border: 2px solid var(--accent-green);
         }
         .items-container {
             flex: 1;
             overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            padding-right: 10px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-auto-rows: 1fr;
+            gap: 12px;
+            padding-right: 4px;
             min-height: 0;
         }
-        /* Scrollbar styling */
         .items-container::-webkit-scrollbar { width: 6px; }
-        .items-container::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 3px; }
-        .items-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+        .items-container::-webkit-scrollbar-track { background: transparent; border-radius: 3px; }
+        .items-container::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
 
         /* ─── Item Card ─── */
         .item-card {
             display: flex;
             align-items: center;
-            gap: 20px;
-            padding: 20px 24px;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.08);
+            gap: 18px;
+            padding: 22px 26px;
+            background: var(--card-bg);
+            border: 2px solid var(--card-border);
             border-radius: 16px;
-            backdrop-filter: blur(10px);
-            transition: transform 0.2s, background 0.2s;
-            animation: slideIn 0.3s ease-out;
+            box-shadow: var(--card-shadow);
+            transition: transform 0.2s, box-shadow 0.2s;
+            min-height: 0;
         }
         .item-card:hover {
-            background: rgba(255,255,255,0.08);
-            transform: translateX(4px);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(15,23,42,0.1);
         }
-        .item-icon {
-            font-size: 48px;
-            width: 64px;
-            height: 64px;
+        .item-icon-compact {
+            font-size: 38px;
+            width: 56px;
+            height: 56px;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: rgba(255,255,255,0.08);
+            background: var(--icon-bg);
             border-radius: 14px;
             flex-shrink: 0;
         }
-        .item-img-full {
-            width: 64px;
-            height: 64px;
+        .item-img {
+            width: 56px;
+            height: 56px;
             object-fit: cover;
             border-radius: 14px;
             flex-shrink: 0;
@@ -171,106 +190,56 @@
             flex: 1;
             min-width: 0;
         }
-        .item-name {
-            font-size: 28px;
-            font-weight: 600;
-            color: #ffffff;
-            margin-bottom: 4px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .item-qty {
-            font-size: 18px;
-            color: rgba(255,255,255,0.5);
-        }
-        .item-price {
-            font-size: 32px;
-            font-weight: 700;
-            color: #00ff88;
-            white-space: nowrap;
-            text-align: right;
-        }
-
-        /* ─── Compact Items (>5 items in cart) ─── */
-        .items-container.compact {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-        }
-        .item-compact {
-            padding: 12px 16px;
-            gap: 10px;
-            border-radius: 12px;
-            animation: none;
-        }
-        .item-icon-compact {
-            font-size: 28px;
-            width: 40px;
-            height: 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255,255,255,0.08);
-            border-radius: 10px;
-            flex-shrink: 0;
-        }
-        .item-img {
-            width: 40px;
-            height: 40px;
-            object-fit: cover;
-            border-radius: 10px;
-            flex-shrink: 0;
-        }
         .item-name-compact {
-            font-size: 18px;
-            font-weight: 600;
-            color: #ffffff;
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--text);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
         .item-qty-compact {
-            font-size: 14px;
-            color: rgba(255,255,255,0.4);
+            font-size: 18px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            font-weight: 700;
         }
         .item-price-compact {
-            font-size: 22px;
-            font-weight: 700;
-            color: #00ff88;
+            font-size: 30px;
+            font-weight: 900;
+            color: var(--accent-green);
             white-space: nowrap;
             text-align: right;
         }
 
         /* ─── Total Bar ─── */
         .total-section {
-            margin-top: 20px;
-            padding: 24px 32px;
-            background: linear-gradient(135deg, rgba(0,255,136,0.15), rgba(0,204,255,0.15));
-            border: 2px solid rgba(0,255,136,0.3);
-            border-radius: 20px;
+            margin-top: 12px;
+            padding: 18px 30px;
+            background: var(--total-bg);
+            border: 3px solid var(--accent-green);
+            border-radius: 16px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            backdrop-filter: blur(20px);
-            animation: glow 2s ease-in-out infinite alternate;
+            flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(21,128,61,0.1);
         }
         .total-label {
             display: flex;
             align-items: center;
-            gap: 12px;
-            font-size: 32px;
-            font-weight: 700;
-            color: #00ff88;
+            gap: 10px;
+            font-size: 24px;
+            font-weight: 900;
+            color: var(--accent-green);
         }
         .total-label .money-icon {
-            font-size: 40px;
+            font-size: 28px;
         }
         .total-amount {
-            font-size: 56px;
+            font-size: 40px;
             font-weight: 900;
-            color: #ffffff;
-            text-shadow: 0 0 30px rgba(0,255,136,0.4);
+            color: var(--text);
         }
 
         /* ─── Paying Screen ─── */
@@ -280,73 +249,92 @@
             text-align: center;
         }
         .paying-icon {
-            font-size: 100px;
-            margin-bottom: 30px;
+            font-size: 84px;
+            margin-bottom: 24px;
             animation: pulse 1.5s ease-in-out infinite;
         }
         .paying-title {
-            font-size: 48px;
-            font-weight: 700;
-            color: #ffcc00;
-            margin-bottom: 40px;
-            letter-spacing: 3px;
+            font-size: 42px;
+            font-weight: 900;
+            color: var(--accent-amber);
+            margin-bottom: 28px;
+            letter-spacing: 2px;
+        }
+        .paying-qr {
+            margin-bottom: 24px;
+        }
+        .paying-qr-img {
+            max-width: 300px;
+            max-height: 300px;
+            border: 4px solid var(--accent-amber);
+            border-radius: 16px;
+            background: #fff;
+            padding: 8px;
         }
         .paying-total-box {
-            padding: 40px 80px;
-            background: rgba(255,204,0,0.1);
-            border: 3px solid rgba(255,204,0,0.4);
+            padding: 36px 72px;
+            background: var(--accent-amber-light);
+            border: 4px solid var(--accent-amber);
             border-radius: 24px;
-            backdrop-filter: blur(20px);
+            box-shadow: 0 8px 24px rgba(180,83,9,0.15);
         }
         .paying-total-label {
             font-size: 24px;
-            color: rgba(255,255,255,0.5);
+            color: var(--text-secondary);
             margin-bottom: 12px;
+            font-weight: 800;
         }
         .paying-total-amount {
-            font-size: 96px;
+            font-size: 72px;
             font-weight: 900;
-            color: #ffcc00;
-            text-shadow: 0 0 40px rgba(255,204,0,0.5);
+            color: var(--accent-amber);
         }
 
-        /* ─── Complete Screen ─── */
-        .complete-view {
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-        }
-        .complete-icon {
-            font-size: 120px;
-            margin-bottom: 30px;
-            animation: bounceIn 0.6s ease-out;
-        }
-        .complete-title {
-            font-size: 64px;
-            font-weight: 900;
-            color: #00ff88;
-            margin-bottom: 20px;
-            text-shadow: 0 0 40px rgba(0,255,136,0.5);
-        }
-        .complete-change {
-            font-size: 48px;
-            font-weight: 700;
-            color: #ffcc00;
-            margin-bottom: 20px;
-            animation: fadeInUp 0.5s ease-out 0.3s both;
-        }
-        .complete-thanks {
-            font-size: 28px;
-            color: rgba(255,255,255,0.5);
-            animation: fadeInUp 0.5s ease-out 0.6s both;
-        }
         .complete-lottery {
-            font-size: 42px;
+            font-size: 38px;
             font-weight: 900;
-            color: #ffcc00;
-            margin-bottom: 20px;
+            color: var(--accent-amber);
+            margin-bottom: 16px;
             animation: fadeInUp 0.5s ease-out 0.4s both;
-            text-shadow: 0 0 30px rgba(255,204,0,0.5);
+        }
+
+        /* ─── QR Full-screen View ─── */
+        .qr-view {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 9999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.88);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            text-align: center;
+            padding: 24px;
+        }
+        .qr-view .qr-amount {
+            font-size: 52px;
+            font-weight: 900;
+            color: #ffffff;
+            margin-bottom: 20px;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .qr-view .qr-view-img {
+            max-width: min(80vw, 500px);
+            max-height: 55vh;
+            width: auto;
+            height: auto;
+            border-radius: 20px;
+            background: #ffffff;
+            padding: 12px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+        }
+        .qr-view .qr-hint {
+            font-size: 24px;
+            color: rgba(255,255,255,0.75);
+            font-weight: 700;
+            margin-top: 24px;
+            letter-spacing: 0.5px;
         }
 
         /* ─── Animations ─── */
@@ -357,14 +345,6 @@
         @keyframes pulse {
             0%, 100% { transform: scale(1); opacity: 1; }
             50% { transform: scale(1.1); opacity: 0.8; }
-        }
-        @keyframes glow {
-            from { box-shadow: 0 0 20px rgba(0,255,136,0.1); }
-            to { box-shadow: 0 0 40px rgba(0,255,136,0.3); }
-        }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(-30px); }
-            to { opacity: 1; transform: translateX(0); }
         }
         @keyframes bounceIn {
             0% { opacity: 0; transform: scale(0.3); }
@@ -379,7 +359,6 @@
     </style>
 </head>
 <body>
-    <!-- Top bar: store name (unobtrusive, top right) -->
     <div class="top-bar">
         <div class="store-name">
             {{ store_info.name }}
@@ -388,14 +367,12 @@
     </div>
 
     <div class="customer-display">
-        <!-- Idle: no active cart -->
         <div id="idleView" class="view idle-view active">
             <div class="welcome-icon">🛍️</div>
             <h1>Тавтай морилно уу</h1>
             <p>Бараа сонгоно уу</p>
         </div>
 
-        <!-- Shopping: items in cart -->
         <div id="shoppingView" class="view shopping-view">
             <div class="shopping-header">🛒 Таны сагс <span class="item-count-badge" id="itemCountBadge">0 бараа</span></div>
             <div class="items-container" id="itemList"></div>
@@ -408,30 +385,17 @@
             </div>
         </div>
 
-        <!-- Paying: cashier clicked checkout -->
-        <div id="payingView" class="view paying-view">
-            <div class="paying-icon" id="payingIcon">💳</div>
-            <div class="paying-title">ТӨЛБӨР ХИЙЖ БАЙНА</div>
-            <div class="paying-total-box">
-                <div class="paying-total-label">ТАНЫ ТӨЛӨХ ДҮН</div>
-                <div class="paying-total-amount" id="payingTotal">0 ₮</div>
-            </div>
+        <div id="qrView" class="view qr-view">
+            <div class="qr-amount" id="qrViewAmount">0 ₮</div>
+            <img id="qrViewImage" class="qr-view-img" alt="QR код">
+            <div class="qr-hint">📱 Гар утаснаасаа QR код уншуулна уу</div>
         </div>
 
-        <!-- Complete: payment confirmed -->
-        <div id="completeView" class="view complete-view">
-            <div class="complete-icon">✅</div>
-            <div class="complete-title">БАЯРЛАЛАА!</div>
-            <div class="complete-change" id="changeInfo"></div>
-            <div class="complete-lottery" id="lotteryInfo" style="display:none;"></div>
-            <div class="complete-thanks">Дахин ирээрэй 🙏</div>
-        </div>
     </div>
 
     <script>
-    var IDLE_TIMEOUT_SECONDS = {{ settings.get("customer_display_timeout", "10") | int }};
     var IDLE_MESSAGE = {{ settings.get("customer_idle_message", "Тавтай морилно уу") | tojson }};
     </script>
-    <script src="{{ url_for('static', filename='customer.js') }}"></script>
+    <script src="{{ static_url('customer.v2.js') }}"></script>
 </body>
 </html>

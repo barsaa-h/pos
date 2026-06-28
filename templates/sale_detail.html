@@ -3,19 +3,7 @@
 
 {% block head %}
 <script>
-var CATEGORY_ICONS = {
-    'Сүүн бүтээгдэхүүн': '🥛',
-    'Талх нарийн боов': '🍞',
-    'Өндөг': '🥚',
-    'Будаа': '🍚',
-    'Гоймон': '🍜',
-    'Тос': '🛢️',
-    'Чихэр': '🍬',
-    'Давс амтлагч': '🧂',
-    'Жимс': '🍎',
-    'Ус ундаа': '🥤',
-    'Бусад': '📦'
-};
+var CATEGORY_ICONS = {{ CATEGORY_ICONS | tojson }};
 function getCategoryIcon(cat) {
     return CATEGORY_ICONS[cat] || CATEGORY_ICONS['Бусад'];
 }
@@ -27,6 +15,7 @@ function getCategoryIcon(cat) {
     <h1 class="page-title">📋 Борлуулалт #{{ sale.id }}</h1>
     <div class="page-actions">
         <button class="btn btn-secondary" onclick="reprintSale({{ sale.id }})">🖨 Дахин хэвлэх</button>
+        <button class="btn btn-primary" onclick="reprintWithEbarimt({{ sale.id }})">📨 eBarimt дахин илгээх</button>
         {% if sale.payment_type != 'return' %}
         <button class="btn btn-warning" onclick="confirmReturnFromDetail({{ sale.id }}, {{ sale.total }})">↩ Буцаалт</button>
         {% endif %}
@@ -151,6 +140,25 @@ function reprintSale(saleId) {
                 alert('Баримт хэвлэгдлээ!');
             } else {
                 alert('Хэвлэх алдаа: ' + (data.error || 'Тодорхойгүй'));
+            }
+        })
+        .catch(function() { alert('Сүлжээний алдаа'); });
+}
+
+function reprintWithEbarimt(saleId) {
+    if (!confirm('Баримтыг дахин хэвлэж, eBarimt дахин илгээх үү?')) return;
+    fetch('/api/reprint/' + saleId, { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                var msg = 'Баримт хэвлэгдлээ!';
+                if (data.ebarimt_retried) {
+                    msg += data.ebarimt_success ? ' eBarimt илгээгдлээ.' : ' eBarimt илгээгдсэнгүй.';
+                }
+                alert(msg);
+                location.reload();
+            } else {
+                alert('Алдаа: ' + (data.error || 'Тодорхойгүй'));
             }
         })
         .catch(function() { alert('Сүлжээний алдаа'); });

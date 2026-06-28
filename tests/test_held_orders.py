@@ -2,7 +2,7 @@ def test_create_held_order(db, request):
     from database import create_held_order, get_held_order
     bc = f"ho_{request.node.name}"
     from database import create_product
-    create_product(bc, "Хүлээлгэсэн бараа", 1000, "Бусад", 10, "ш")
+    create_product(bc, "Хүлээлгэсэн бараа", 1000, "Бусад", "ш")
     items = [{"product_name": "Хүлээлгэсэн бараа", "quantity": 2, "unit_price": 1000, "subtotal": 2000}]
     order_id = create_held_order("Test order", items, 2000)
     assert order_id is not None

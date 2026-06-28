@@ -1,0 +1,21 @@
+[run]
+source = .
+omit =
+    tests/*
+    venv/*
+    windows/*
+    ubuntu/*
+    desktop.py
+    pos.spec
+    database/test_*.py
+    dev.py
+    generate_icon.py
+    sample_receipt_preview.py
+
+[report]
+fail_under = 50
+show_missing = true
+exclude_lines =
+    pragma: no cover
+    if __name__
+    raise NotImplementedError

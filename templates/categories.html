@@ -169,7 +169,12 @@ function saveCategory() {
 
 function confirmDelete(id, name) {
     deleteId = id;
-    document.getElementById('deleteConfirmText').innerHTML = '<strong>"' + name + '"</strong> ангилалыг устгах уу?';
+    var strongEl = document.createElement('strong');
+    strongEl.textContent = '"' + name + '"';
+    var textEl = document.getElementById('deleteConfirmText');
+    textEl.textContent = '';
+    textEl.appendChild(strongEl);
+    textEl.appendChild(document.createTextNode(' ангилалыг устгах уу?'));
     document.getElementById('deleteModal').classList.add('active');
 }
 

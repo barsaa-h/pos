@@ -28,8 +28,13 @@ def t(key, lang="mn", default=None):
     return default or key
 
 def get_locale():
-    """Get current locale. For now always returns 'mn'. 
-    Future: detect from user preference, browser header, or settings."""
+    try:
+        from config import get_config
+        lang = get_config("ui_language")
+        if lang in ("mn", "en"):
+            return lang
+    except Exception:
+        pass
     return "mn"
 
 # Jinja2 template global: {{ _t('key') }}

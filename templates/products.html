@@ -106,24 +106,312 @@
 .category-chip .chip-emoji {
     font-size: 0.95rem;
 }
+.product-checkbox {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: #e74c3c;
+    z-index: 2;
+}
+.product-card-item {
+    position: relative;
+}
+.product-card-item.selected {
+    border-color: #e74c3c;
+    box-shadow: 0 0 0 2px rgba(231,76,60,0.2);
+}
+.product-card-item.missing-barcode,
+.product-card-item.missing-price {
+    background: #fffde7;
+    border-color: #fcd34d;
+    box-shadow: 0 0 12px rgba(251, 191, 36, 0.35);
+}
+.selection-bar {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: #fff5f5;
+    border: 1px solid #e74c3c;
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
+.selection-bar.active {
+    display: flex;
+}
+.selection-bar .sel-count {
+    font-weight: 600;
+    color: #c0392b;
+}
+#dragRect {
+    position: fixed;
+    pointer-events: none;
+    border: 2px dashed #e74c3c;
+    background: rgba(231,76,60,0.08);
+    z-index: 9999;
+    display: none;
+}
+body.sel-mode .product-checkbox {
+    display: block !important;
+}
+body.sel-mode #productGrid {
+    cursor: crosshair;
+}
+body.sel-mode .product-card-item:hover {
+    border-color: #e74c3c;
+}
+body.sel-mode .product-card-actions .btn,
+body.sel-mode .product-card-actions form {
+    pointer-events: none;
+    opacity: 0.4;
+}
+.product-checkbox {
+    display: none;
+}
+.btn-sel-mode {
+    transition: all 0.15s;
+}
+.btn-sel-mode.active {
+    background: #e74c3c !important;
+    color: #fff !important;
+    border-color: #c0392b !important;
+}
 </style>
 <script>
-var CATEGORY_ICONS = {
-    'Сүүн бүтээгдэхүүн': '🥛',
-    'Талх нарийн боов': '🍞',
-    'Өндөг': '🥚',
-    'Будаа': '🍚',
-    'Гоймон': '🍜',
-    'Тос': '🛢️',
-    'Чихэр': '🍬',
-    'Давс амтлагч': '🧂',
-    'Жимс': '🍎',
-    'Ус ундаа': '🥤',
-    'Бусад': '📦'
-};
-function getCategoryIcon(cat) {
-    return CATEGORY_ICONS[cat] || CATEGORY_ICONS['Бусад'];
+var CATEGORY_ICONS = {{ CATEGORY_ICONS | tojson }};
+function toggleSelectAll(master) {
+    document.querySelectorAll('.product-checkbox').forEach(function(cb) {
+        cb.checked = master.checked;
+        cb.closest('.product-card-item').classList.toggle('selected', master.checked);
+    });
+    onSelectionChange();
 }
+
+function onSelectionChange() {
+    var checkboxes = document.querySelectorAll('.product-checkbox');
+    var checked = [];
+    checkboxes.forEach(function(cb) {
+        var card = cb.closest('.product-card-item');
+        if (cb.checked) {
+            checked.push(cb.value);
+            card.classList.add('selected');
+        } else {
+            card.classList.remove('selected');
+        }
+    });
+    var bar = document.getElementById('selectionBar');
+    var countEl = document.getElementById('selCount');
+    if (checked.length > 0) {
+        bar.classList.add('active');
+        countEl.textContent = checked.length + ' сонгосон';
+    } else {
+        bar.classList.remove('active');
+    }
+    var master = document.getElementById('selectAllCheck');
+    if (master) {
+        master.checked = checked.length > 0 && checked.length === checkboxes.length;
+    }
+}
+
+function clearSelection() {
+    document.querySelectorAll('.product-checkbox').forEach(function(cb) {
+        cb.checked = false;
+        cb.closest('.product-card-item').classList.remove('selected');
+    });
+    document.getElementById('selectAllCheck').checked = false;
+    document.getElementById('selectionBar').classList.remove('active');
+}
+
+function confirmMassDelete() {
+    var checked = document.querySelectorAll('.product-checkbox:checked');
+    if (checked.length === 0) return;
+    if (!confirm(checked.length + ' барааг устгахдаа итгэлтэй байна уу?')) return;
+
+    var ids = [];
+    checked.forEach(function(cb) { ids.push(cb.value); });
+
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '{{ url_for('products_delete_mass') }}';
+    var csrf = document.createElement('input');
+    csrf.type = 'hidden';
+    csrf.name = 'csrf_token';
+    csrf.value = '{{ csrf_token }}';
+    form.appendChild(csrf);
+    ids.forEach(function(id) {
+        var inp = document.createElement('input');
+        inp.type = 'hidden';
+        inp.name = 'product_ids';
+        inp.value = id;
+        form.appendChild(inp);
+    });
+    document.body.appendChild(form);
+    form.submit();
+}
+
+var _selectionMode = false;
+var _dragActive = false;
+var _dragRectEl = null;
+var _dragStartX = 0, _dragStartY = 0;
+var _dragMoved = false;
+var _scrollInterval = null;
+var _scrollDir = 0;
+var _lastClientX = 0, _lastClientY = 0;
+var _startDocY = 0;
+var _scrollMargin = 40;
+
+function toggleSelectionMode() {
+    _selectionMode = !_selectionMode;
+    var btn = document.getElementById('selModeBtn');
+    if (_selectionMode) {
+        btn.classList.add('active');
+        btn.textContent = '☑ Сонголт (ON)';
+        document.body.classList.add('sel-mode');
+        document.getElementById('selectAllLabel').style.display = 'flex';
+        clearSelection();
+    } else {
+        btn.classList.remove('active');
+        btn.textContent = '☑ Сонголт';
+        document.body.classList.remove('sel-mode');
+        document.getElementById('selectAllLabel').style.display = 'none';
+        document.getElementById('selectionBar').classList.remove('active');
+        document.querySelectorAll('.product-checkbox').forEach(function(cb) {
+            cb.checked = false;
+            cb.closest('.product-card-item').classList.remove('selected');
+        });
+    }
+}
+
+function initDragSelect() {
+    _dragRectEl = document.getElementById('dragRect');
+    if (!_dragRectEl) {
+        _dragRectEl = document.createElement('div');
+        _dragRectEl.id = 'dragRect';
+        document.body.appendChild(_dragRectEl);
+    }
+
+    document.addEventListener('mousedown', function(e) {
+        if (e.button !== 0 || !_selectionMode) return;
+        if (e.target.closest('.btn, .modal-overlay, .selection-bar, .category-chip, .search-bar-wrapper, #selectAllLabel, .product-checkbox')) return;
+        _dragActive = true;
+        _dragMoved = false;
+        _dragStartX = e.clientX;
+        _dragStartY = e.clientY;
+        _startDocY = e.clientY + window.scrollY;
+        _dragRectEl.style.left = _dragStartX + 'px';
+        _dragRectEl.style.top = _dragStartY + 'px';
+        _dragRectEl.style.width = '0px';
+        _dragRectEl.style.height = '0px';
+        _dragRectEl.style.display = 'block';
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!_dragActive || !_selectionMode) return;
+        var dx = Math.abs(e.clientX - _dragStartX);
+        var dy = Math.abs(e.clientY - _dragStartY);
+        if (dx > 3 || dy > 3) {
+            _dragMoved = true;
+        }
+        if (!_dragMoved) return;
+
+        _lastClientX = e.clientX;
+        _lastClientY = e.clientY;
+        var vh = window.innerHeight;
+
+        if (e.clientY < _scrollMargin) {
+            var speed = 1 + (_scrollMargin - e.clientY) / _scrollMargin * 10;
+            _scrollDir = -speed;
+            if (!_scrollInterval) {
+                _scrollInterval = setInterval(autoScroll, 20);
+            }
+        } else if (e.clientY > vh - _scrollMargin) {
+            var distFromEdge = e.clientY - (vh - _scrollMargin);
+            var speed = 1 + distFromEdge / _scrollMargin * 10;
+            _scrollDir = speed;
+            if (!_scrollInterval) {
+                _scrollInterval = setInterval(autoScroll, 20);
+            }
+        } else {
+            _scrollDir = 0;
+            if (_scrollInterval) {
+                clearInterval(_scrollInterval);
+                _scrollInterval = null;
+            }
+        }
+
+        drawRubberBand(e.clientX, e.clientY);
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (!_dragActive) return;
+        _dragActive = false;
+        _dragRectEl.style.display = 'none';
+        _scrollDir = 0;
+        if (_scrollInterval) {
+            clearInterval(_scrollInterval);
+            _scrollInterval = null;
+        }
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!_selectionMode || _dragMoved) return;
+        var card = e.target.closest('.product-card-item');
+        if (!card) return;
+        if (e.target.closest('.btn, .product-checkbox, form')) return;
+        var chk = card.querySelector('.product-checkbox');
+        if (chk) {
+            chk.checked = !chk.checked;
+            card.classList.toggle('selected', chk.checked);
+            onSelectionChange();
+        }
+    });
+}
+
+function drawRubberBand(curClientX, curClientY) {
+    var curDocY = curClientY + window.scrollY;
+    var docTop = Math.min(_startDocY, curDocY);
+    var docBottom = Math.max(_startDocY, curDocY);
+    var scrollY = window.scrollY;
+    var vpTop = docTop - scrollY;
+    var vpBottom = docBottom - scrollY;
+    var vpLeft = Math.min(_dragStartX, curClientX);
+    var vpRight = Math.max(_dragStartX, curClientX);
+    var vpW = vpRight - vpLeft;
+    var vpH = vpBottom - vpTop;
+    _dragRectEl.style.left = vpLeft + 'px';
+    _dragRectEl.style.top = vpTop + 'px';
+    _dragRectEl.style.width = vpW + 'px';
+    _dragRectEl.style.height = vpH + 'px';
+    updateDragSelection(vpLeft, vpTop, vpW, vpH);
+}
+
+function autoScroll() {
+    if (!_dragActive || _scrollDir === 0) return;
+    window.scrollBy(0, _scrollDir);
+    drawRubberBand(_lastClientX, _lastClientY);
+}
+
+function updateDragSelection(vpLeft, vpTop, vpW, vpH) {
+    var vpRight = vpLeft + vpW;
+    var vpBottom = vpTop + vpH;
+    document.querySelectorAll('.product-card-item').forEach(function(card) {
+        var rect = card.getBoundingClientRect();
+        var isOverlap = !(rect.right < vpLeft || rect.left > vpRight || rect.bottom < vpTop || rect.top > vpBottom);
+        var cb = card.querySelector('.product-checkbox');
+        if (cb) {
+            cb.checked = isOverlap;
+            card.classList.toggle('selected', isOverlap);
+        }
+    });
+    onSelectionChange();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    initDragSelect();
+});
 </script>
 {% endblock %}
 
@@ -133,7 +421,7 @@ function getCategoryIcon(cat) {
     <div class="page-actions">
         <button class="btn btn-primary" onclick="openModal('createModal')">+ Шинэ бараа</button>
         <button class="btn btn-secondary" onclick="openModal('importModal')">📁 CSV импорт</button>
-        <button class="btn btn-warning" onclick="openModal('bulkPriceModal')">📊 Үнэ шинэчлэх</button>
+        <button class="btn btn-secondary btn-sel-mode" id="selModeBtn" onclick="toggleSelectionMode()">☑ Сонголт</button>
     </div>
 </div>
 
@@ -144,6 +432,15 @@ function getCategoryIcon(cat) {
                placeholder="Баркод эсвэл нэрээр хайх..." oninput="filterProducts()">
     </div>
     <span class="text-muted" id="productCount">Нийт: {{ products|length }} бараа</span>
+    <label id="selectAllLabel" style="margin-left:auto; font-size:0.85rem; display:none; align-items:center; gap:4px; cursor:pointer;">
+        <input type="checkbox" id="selectAllCheck" onchange="toggleSelectAll(this)"> Бүгдийг сонгох
+    </label>
+</div>
+
+<div class="selection-bar" id="selectionBar">
+    <span class="sel-count" id="selCount">0 сонгосон</span>
+    <button class="btn btn-sm btn-danger" onclick="confirmMassDelete()">🗑 Сонгосоныг устгах</button>
+    <button class="btn btn-sm btn-secondary" onclick="clearSelection()">Цуцлах</button>
 </div>
 
 <div class="category-chips" id="categoryChips">
@@ -155,15 +452,19 @@ function getCategoryIcon(cat) {
         <span class="chip-emoji">{{ CATEGORY_ICONS.get(cat, '📦') }}</span> {{ cat }}
     </button>
     {% endfor %}
+    <button class="category-chip" id="missingBarcodeChip" onclick="toggleMissingBarcodeFilter()" style="border-color:#fcd34d; color:#92400e;">
+        ⚠️ Баркодгүй
+    </button>
 </div>
 
 <div class="product-card-grid" id="productGrid">
     {% for p in products %}
-    <div class="product-card-item"
+    <div class="product-card-item{% if not p.barcode %} missing-barcode{% elif not p.price or p.price == 0 %} missing-price{% endif %}"
          data-name="{{ p.name|lower }}"
          data-barcode="{{ p.barcode }}"
          data-category="{{ p.category }}"
          data-id="{{ p.id }}">
+        <input type="checkbox" name="product_ids" value="{{ p.id }}" class="product-checkbox" onchange="onSelectionChange()">
         <div class="product-card-header">
             {% if p.image_url %}
             <img src="{{ p.image_url }}" alt="{{ p.name|e }}" style="width:48px; height:48px; object-fit:cover; border-radius:8px; flex-shrink:0;">
@@ -176,33 +477,18 @@ function getCategoryIcon(cat) {
             </div>
         </div>
         <div class="product-card-price">{{ "{:,.0f}".format(p.price) }} ₮</div>
-        {% if p.cost_price and p.cost_price > 0 %}
+        {% if p.cost_price and (p.cost_price|int) > 0 %}
         <div style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:4px;">
-            💰 Ашиг: {{ "{:,.0f}".format(p.price - p.cost_price) }} ₮ ({{ ((p.price - p.cost_price) / p.cost_price * 100)|round }}%)
+            💰 Ашиг: {{ "{:,.0f}".format(p.price - (p.cost_price|int)) }} ₮ ({{ ((p.price - (p.cost_price|int)) / (p.cost_price|int) * 100)|round }}%)
         </div>
         {% endif %}
         <div class="product-card-meta">
             <span class="category-icon"><span class="cat-emoji">{{ CATEGORY_ICONS.get(p.category, '📦') }}</span> {{ p.category }}</span>
-            <span class="stock-indicator">
-                <span class="stock-dot {% if p.stock_qty == 0 %}out{% elif p.stock_qty <= p.low_stock_threshold %}low{% else %}ok{% endif %}"></span>
-                {{ p.stock_qty }} {{ p.unit }}
-            </span>
-            {% if not p.is_active %}
-            <span class="status-badge status-failed">Идэвхгүй</span>
-            {% elif p.stock_qty == 0 %}
-            <span class="status-badge status-failed">Дууссан</span>
-            {% elif p.stock_qty <= p.low_stock_threshold %}
-            <span class="status-badge status-pending">Бага</span>
-            {% endif %}
-            {% if p.expiry_date %}
-            <span class="status-badge status-pending" style="margin-left:4px;">
-                ⏰ {{ p.expiry_date }}
-            </span>
-            {% endif %}
+            <span class="text-muted">{{ p.unit }}</span>
         </div>
         <div class="product-card-actions">
-            <button class="btn btn-sm btn-secondary" onclick="editProduct({{ p.id }}, {{ p.barcode|tojson }}, {{ p.name|tojson }}, {{ p.price }}, {{ p.category|tojson }}, {{ p.stock_qty }}, {{ p.unit|tojson }}, {{ p.low_stock_threshold }}, {{ p.is_active|int }}, {{ (p.cost_price or 0)|int }}, {{ p.expiry_date|tojson }}, {{ (p.image_url or '')|tojson }}, {{ (p.supplier_id or '')|tojson }})">✏️ Засах</button>
-            {% if p.is_active %}
+            <button class="btn btn-sm btn-secondary" onclick='editProduct({{ p.id }}, {{ p.barcode|tojson }}, {{ p.name|tojson }}, {{ p.price }}, {{ p.category|tojson }}, {{ p.unit|tojson }}, {{ (p.image_url or "")|tojson }})'>✏️ Засах</button>
+            {% if (p.is_active|int) %}
             <form method="POST" action="{{ url_for('products_delete', product_id=p.id) }}" style="display:inline;" onsubmit="return confirm('Устгах уу?')">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="btn btn-sm btn-danger">🗑 Устгах</button>
@@ -234,42 +520,36 @@ function getCategoryIcon(cat) {
             <div class="modal-body">
                 <div class="form-group">
                     <label>Баркод:</label>
-                    <input type="text" name="barcode" class="form-control" required>
+                    <input type="text" name="barcode" class="form-control" placeholder="Сканнердах эсвэл гараар оруулах">
                 </div>
                 <div class="form-group">
-                    <label>Нэр:</label>
+                    <label>Нэр: <span class="text-danger">*</span></label>
                     <input type="text" name="name" class="form-control" required>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Үнэ (₮):</label>
-                        <input type="number" name="price" class="form-control" min="0" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Өртөг (₮):</label>
-                        <input type="number" name="cost_price" class="form-control" min="0" value="0">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Нөөц:</label>
-                        <input type="number" name="stock_qty" class="form-control" min="0" value="0">
-                    </div>
-                    <div class="form-group">
-                        <label>Дуусах хугацаа:</label>
-                        <input type="date" name="expiry_date" class="form-control">
+                        <label>Үнэ (₮): <span class="text-danger">*</span></label>
+                        <input type="number" name="price" class="form-control" min="0" placeholder="0" required>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label>Ангилал:</label>
-                        <select name="category" class="form-control">
-                            {% for cat in categories %}
-                            <option value="{{ cat }}" {% if cat == 'Бусад' %}selected{% endif %}>
-                                {{ CATEGORY_ICONS.get(cat, '') }} {{ cat }}
-                            </option>
-                            {% endfor %}
-                        </select>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <select name="category" id="createCategory" class="form-control" style="flex:1;">
+                                {% for cat in categories %}
+                                <option value="{{ cat }}" {% if cat == 'Бусад' %}selected{% endif %}>
+                                    {{ CATEGORY_ICONS.get(cat, '') }} {{ cat }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="showCategoryInput('createCategory')" style="min-width:36px; height:46px; padding:0;" title="Шинэ ангилал">+</button>
+                        </div>
+                        <div id="createCategoryInput" style="display:none; margin-top:6px; display:flex; gap:4px;">
+                            <input type="text" class="form-control" placeholder="Ангиллын нэр" style="flex:1;" maxlength="50">
+                            <button type="button" class="btn btn-sm btn-primary" onclick="addNewCategory('createCategory')">✓</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="cancelCategoryInput('createCategory')">✕</button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>Нэгж:</label>
@@ -281,17 +561,6 @@ function getCategoryIcon(cat) {
                         </select>
                     </div>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Нийлүүлэгч:</label>
-                        <select name="supplier_id" class="form-control">
-                            <option value="">— Сонгох —</option>
-                            {% for s in suppliers %}
-                            <option value="{{ s.id }}">{{ s.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                </div>
                 <div class="form-group">
                     <label>Зураг:</label>
                     <input type="hidden" name="image_url" id="createImageUrl">
@@ -300,10 +569,6 @@ function getCategoryIcon(cat) {
                         <button type="button" class="btn btn-sm btn-danger" onclick="clearCreateImage()" style="margin-left:8px;">✕</button>
                     </div>
                     <input type="file" accept="image/*" onchange="uploadProductImage(this, 'create')" style="font-size:0.9rem;">
-                </div>
-                <div class="form-group">
-                    <label>Бага нөөцийн босго:</label>
-                    <input type="number" name="low_stock_threshold" class="form-control" min="0" value="5">
                 </div>
             </div>
             <div class="modal-footer">
@@ -325,40 +590,34 @@ function getCategoryIcon(cat) {
             <div class="modal-body">
                 <div class="form-group">
                     <label>Баркод:</label>
-                    <input type="text" name="barcode" id="editBarcode" class="form-control" required>
+                    <input type="text" name="barcode" id="editBarcode" class="form-control" placeholder="Сканнердах эсвэл гараар оруулах">
                 </div>
                 <div class="form-group">
-                    <label>Нэр:</label>
+                    <label>Нэр: <span class="text-danger">*</span></label>
                     <input type="text" name="name" id="editName" class="form-control" required>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Үнэ (₮):</label>
-                        <input type="number" name="price" id="editPrice" class="form-control" min="0" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Өртөг (₮):</label>
-                        <input type="number" name="cost_price" id="editCostPrice" class="form-control" min="0">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Нөөц:</label>
-                        <input type="number" name="stock_qty" id="editStock" class="form-control" min="0">
-                    </div>
-                    <div class="form-group">
-                        <label>Дуусах хугацаа:</label>
-                        <input type="date" name="expiry_date" id="editExpiryDate" class="form-control">
+                        <label>Үнэ (₮): <span class="text-danger">*</span></label>
+                        <input type="number" name="price" id="editPrice" class="form-control" min="0" placeholder="0" required>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label>Ангилал:</label>
-                        <select name="category" id="editCategory" class="form-control">
-                            {% for cat in categories %}
-                            <option value="{{ cat }}">{{ CATEGORY_ICONS.get(cat, '') }} {{ cat }}</option>
-                            {% endfor %}
-                        </select>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <select name="category" id="editCategory" class="form-control" style="flex:1;">
+                                {% for cat in categories %}
+                                <option value="{{ cat }}">{{ CATEGORY_ICONS.get(cat, '') }} {{ cat }}</option>
+                                {% endfor %}
+                            </select>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="showCategoryInput('editCategory')" style="min-width:36px; height:46px; padding:0;" title="Шинэ ангилал">+</button>
+                        </div>
+                        <div id="editCategoryInput" style="display:none; margin-top:6px; display:flex; gap:4px;">
+                            <input type="text" class="form-control" placeholder="Ангиллын нэр" style="flex:1;" maxlength="50">
+                            <button type="button" class="btn btn-sm btn-primary" onclick="addNewCategory('editCategory')">✓</button>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="cancelCategoryInput('editCategory')">✕</button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>Нэгж:</label>
@@ -370,17 +629,6 @@ function getCategoryIcon(cat) {
                         </select>
                     </div>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Нийлүүлэгч:</label>
-                        <select name="supplier_id" id="editSupplierId" class="form-control">
-                            <option value="">— Сонгох —</option>
-                            {% for s in suppliers %}
-                            <option value="{{ s.id }}">{{ s.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                </div>
                 <div class="form-group">
                     <label>Зураг:</label>
                     <input type="hidden" name="image_url" id="editImageUrl">
@@ -389,19 +637,6 @@ function getCategoryIcon(cat) {
                         <button type="button" class="btn btn-sm btn-danger" onclick="clearEditImage()" style="margin-left:8px;">✕</button>
                     </div>
                     <input type="file" accept="image/*" onchange="uploadProductImage(this, 'edit')" style="font-size:0.9rem;">
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Бага нөөцийн босго:</label>
-                        <input type="number" name="low_stock_threshold" id="editThreshold" class="form-control" min="0">
-                    </div>
-                    <div class="form-group">
-                        <label>Идэвхтэй:</label>
-                        <select name="is_active" id="editActive" class="form-control">
-                            <option value="1">Тийм</option>
-                            <option value="0">Үгүй</option>
-                        </select>
-                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -422,9 +657,9 @@ function getCategoryIcon(cat) {
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="modal-body">
                 <p class="mb-16">CSV файлын формат:</p>
-                <pre style="background:#F5F5F5; padding:12px; border-radius:6px; font-size:0.8rem; overflow-x:auto;">barcode,name,price,category,stock_qty,unit
-8901234567890,Сүү 1л,4500,Сүүн бүтээгдэхүүн,50,ш
-8901234567891,Талх,3200,Талх нарийн боов,30,ш</pre>
+                <pre style="background:#F5F5F5; padding:12px; border-radius:6px; font-size:0.8rem; overflow-x:auto;">barcode,name,price,category,unit
+8901234567890,Сүү 1л,4500,Сүүн бүтээгдэхүүн,ш
+8901234567891,Талх,3200,Талх нарийн боов,ш</pre>
                 <div class="form-group mt-16">
                     <label>CSV файл сонгох:</label>
                     <input type="file" name="csv_file" class="form-control" accept=".csv" required>
@@ -438,37 +673,6 @@ function getCategoryIcon(cat) {
     </div>
 </div>
 
-<div class="modal-overlay" id="bulkPriceModal" role="dialog" aria-modal="true">
-    <div class="modal">
-        <div class="modal-header">
-            <h2 class="modal-title">📊 Бөөн үнэ шинэчлэх</h2>
-            <button class="modal-close" onclick="closeModal('bulkPriceModal')">&times;</button>
-        </div>
-        <form method="POST" action="{{ url_for('products_bulk_price') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="modal-body">
-                <p style="font-size:0.9rem; color:var(--text-secondary); margin-bottom:14px;">Сонгосон ангилал дахь бүх идэвхтэй барааны үнийг хувиар өөрчилнө.</p>
-                <div class="form-group">
-                    <label>Ангилал:</label>
-                    <select name="category" class="form-control" required>
-                        <option value="">— Сонгох —</option>
-                        {% for cat in categories %}
-                        <option value="{{ cat }}">{{ CATEGORY_ICONS.get(cat, '📦') }} {{ cat }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Өөрчлөлт (%):</label>
-                    <input type="number" name="percent_change" class="form-control" placeholder="10 = 10%-иар нэмэх, -5 = 5%-иар бууруулах" step="0.1" required>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="closeModal('bulkPriceModal')">Цуцлах</button>
-                <button type="submit" class="btn btn-warning">✓ Шинэчлэх</button>
-            </div>
-        </form>
-    </div>
-</div>
 
 <script>
 function openModal(id) {
@@ -479,23 +683,14 @@ function closeModal(id) {
     document.getElementById(id).classList.remove('active');
 }
 
-function editProduct(id, barcode, name, price, category, stock, unit, threshold, active) {
-    var costPrice = arguments[9] !== undefined ? arguments[9] : '0';
-    var expiryDate = arguments[10] !== undefined ? arguments[10] : '';
-    var imageUrl = arguments[11] !== undefined ? arguments[11] : '';
-    var supplierId = arguments[12] !== undefined ? arguments[12] : '';
+function editProduct(id, barcode, name, price, category, unit) {
+    var imageUrl = arguments[6] !== undefined ? arguments[6] : '';
     document.getElementById('editForm').action = '/products/update/' + id;
     document.getElementById('editBarcode').value = barcode;
     document.getElementById('editName').value = name;
     document.getElementById('editPrice').value = price;
-    document.getElementById('editCostPrice').value = costPrice;
-    document.getElementById('editStock').value = stock;
     document.getElementById('editCategory').value = category;
     document.getElementById('editUnit').value = unit;
-    document.getElementById('editThreshold').value = threshold;
-    document.getElementById('editExpiryDate').value = expiryDate;
-    document.getElementById('editSupplierId').value = supplierId;
-    document.getElementById('editActive').value = active;
     if (imageUrl) {
         document.getElementById('editImageUrl').value = imageUrl;
         document.getElementById('editImageImg').src = imageUrl;
@@ -541,9 +736,25 @@ function clearEditImage() {
 }
 
 var currentCategory = '';
+var missingBarcodeFilter = false;
+
+function toggleMissingBarcodeFilter() {
+    missingBarcodeFilter = !missingBarcodeFilter;
+    var btn = document.getElementById('missingBarcodeChip');
+    btn.classList.toggle('active', missingBarcodeFilter);
+    if (missingBarcodeFilter) {
+        currentCategory = '';
+        document.querySelectorAll('.category-chip').forEach(function(b) {
+            b.classList.remove('active');
+        });
+    }
+    filterProducts();
+}
 
 function filterByCategory(category, btn) {
     currentCategory = category;
+    missingBarcodeFilter = false;
+    document.getElementById('missingBarcodeChip').classList.remove('active');
     document.querySelectorAll('.category-chip').forEach(function(b) {
         b.classList.remove('active');
     });
@@ -562,8 +773,9 @@ function filterProducts() {
 
         var matchesSearch = !query || name.indexOf(query) !== -1 || barcode.indexOf(query) !== -1;
         var matchesCategory = !currentCategory || cat === currentCategory;
+        var matchesMissing = !missingBarcodeFilter || card.classList.contains('missing-barcode');
 
-        if (matchesSearch && matchesCategory) {
+        if (matchesSearch && matchesCategory && matchesMissing) {
             card.style.display = '';
             visible++;
         } else {
@@ -571,6 +783,62 @@ function filterProducts() {
         }
     });
     document.getElementById('productCount').textContent = 'Харагдаж байна: ' + visible + ' / Нийт: {{ products|length }}';
+}
+
+function showCategoryInput(selectId) {
+    var inputDiv = document.getElementById(selectId + 'Input');
+    inputDiv.style.display = 'flex';
+    var input = inputDiv.querySelector('input');
+    input.value = '';
+    input.focus();
+    input.addEventListener('keydown', function handler(e) {
+        if (e.key === 'Enter') { addNewCategory(selectId); }
+        if (e.key === 'Escape') { cancelCategoryInput(selectId); input.removeEventListener('keydown', handler); }
+    });
+}
+
+function cancelCategoryInput(selectId) {
+    document.getElementById(selectId + 'Input').style.display = 'none';
+}
+
+function addNewCategory(selectId) {
+    var inputDiv = document.getElementById(selectId + 'Input');
+    var input = inputDiv.querySelector('input');
+    var name = input.value.trim();
+    if (!name) return;
+
+    var btn = inputDiv.querySelector('.btn-primary');
+    btn.disabled = true;
+    btn.textContent = '...';
+
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    fetch('/api/category/add', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrfMeta ? csrfMeta.content : ''
+        },
+        body: JSON.stringify({ name: name })
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+          if (data.success) {
+              var select = document.getElementById(selectId);
+              var opt = document.createElement('option');
+              opt.value = data.name;
+              opt.textContent = data.name;
+              select.appendChild(opt);
+              select.value = data.name;
+              cancelCategoryInput(selectId);
+          } else {
+              alert(data.error || 'Ангилал үүсгэж чадсангүй');
+          }
+          btn.disabled = false;
+          btn.textContent = '✓';
+      }).catch(function() {
+          alert('Сүлжээний алдаа');
+          btn.disabled = false;
+          btn.textContent = '✓';
+      });
 }
 </script>
 {% endblock %}

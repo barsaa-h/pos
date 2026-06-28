@@ -1,125 +1,183 @@
 #!/bin/bash
+# POS System — One-Click Installer for Linux Mint XFCE
+# Usage:  ./install.sh
+# Copies itself to ~/.local/share/pos-app first if not already there.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+
+# ── Check if running from a removable / transient location ──
+# If running from /run/media, /media, or /tmp, copy to ~/.local/share/pos-app
+TARGET_DIR="$HOME/.local/share/pos-app"
+if [[ "$SCRIPT_DIR" == /run/media/* ]] || [[ "$SCRIPT_DIR" == /media/* ]] || [[ "$SCRIPT_DIR" == /tmp/* ]]; then
+    echo "📁 USB / түр сангаас илэрсэн. $TARGET_DIR руу хуулж байна..."
+    mkdir -p "$TARGET_DIR"
+    rsync -a --delete "$SCRIPT_DIR"/ "$TARGET_DIR"/
+    echo "✅ Хуулагдлаа: $TARGET_DIR"
+    cd "$TARGET_DIR"
+    exec "$TARGET_DIR/install.sh"
+    exit 0
+fi
+
+ROOT_DIR="$SCRIPT_DIR"
+cd "$ROOT_DIR"
 
 echo "============================================"
-echo "  Миний дэлгүүр — POS систем суулгах"
+echo "  Моност POS — Linux Mint XFCE суулгагч"
 echo "============================================"
 echo ""
 
-# ─── Check Python ───
-echo "🔍 Python 3 шалгаж байна..."
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 олдсонгүй. Суулгана уу:"
-    echo "   sudo apt update && sudo apt install python3 python3-venv python3-pip"
+# ── System dependencies ──
+echo "🔍 Системийн хамаарлууд шалгаж байна..."
+
+if ! command -v python3 &>/dev/null; then
+    echo "❌ Python 3 олдсонгүй. Суулгах:"
+    echo "   sudo apt install python3 python3-venv python3-pip python3-tk"
     exit 1
 fi
-PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
-PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
-PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
-if [ "$PYTHON_MAJOR" -lt 3 ] || { [ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 10 ]; }; then
-    echo "❌ Python >= 3.10 шаардлагатай (одоогийн: $PYTHON_VERSION)"
+echo "  ✅ Python $(python3 --version)"
+
+MISSING_DEPS=""
+if ! python3 -c "import tkinter" &>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS python3-tk"
+fi
+if ! dpkg -l libwebkit2gtk-4.1-0 &>/dev/null && ! dpkg -l libwebkit2gtk-4.0-37 &>/dev/null; then
+    MISSING_DEPS="$MISSING_DEPS libwebkit2gtk-4.1-dev"
+fi
+
+if [ -n "$MISSING_DEPS" ]; then
+    echo "  ⚠️  Дараах системийн хамаарлууд суулгагдаагүй байна:"
+    echo "     sudo apt install$MISSING_DEPS"
+    echo "  Суулгасны дараа ./install.sh дахин ажиллуулна уу."
     exit 1
 fi
-echo "✅ Python $PYTHON_VERSION"
+echo "  ✅ Бүх системийн хамаарлууд бэлэн"
 
-# ─── Create virtual environment ───
+# ── Virtual environment ──
 echo ""
-echo "📦 Virtual environment үүсгэж байна..."
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
+echo "📦 Виртуал орчин үүсгэж байна..."
+VENV_DIR="$ROOT_DIR/venv"
+if [ ! -f "$VENV_DIR/bin/python3" ]; then
+    python3 -m venv "$VENV_DIR"
 fi
-echo "✅ venv бэлэн"
+VENV_PYTHON="$VENV_DIR/bin/python3"
 
-# ─── Install dependencies ───
-echo ""
-echo "📦 Python хамаарлууд суулгаж байна..."
-source venv/bin/activate
-pip install --upgrade pip -q
-pip install -r requirements.txt -q
-echo "✅ Хамаарлууд суулгагдлаа"
+echo "📦 Хамаарлууд суулгаж байна..."
+"$VENV_PYTHON" -m pip install --upgrade pip -q
+"$VENV_PYTHON" -m pip install -r "$ROOT_DIR/requirements.txt" -q
 
-# ─── Initialize database ───
+# Mint launcher uses waitress — add it
+"$VENV_PYTHON" -m pip install waitress -q 2>/dev/null || true
+
+echo "  ✅ Python хамаарлууд бэлэн"
+
+# ── Database ──
 echo ""
-echo "🗄️ Database бэлдэж байна..."
-python3 -c "
+echo "🗄️  Өгөгдлийн сан бэлдэж байна..."
+"$VENV_PYTHON" -c "
+import sys, os
+sys.path.insert(0, '$ROOT_DIR')
 import database as db
 db.init_db()
-print('✅ Database бэлэн')
+print('  ✅ Өгөгдлийн сан бэлэн')
 "
 
-# ─── Create directories ───
-mkdir -p backups
+# ── Directories ──
+mkdir -p "$ROOT_DIR/logs" "$ROOT_DIR/backups" "$ROOT_DIR/static/uploads"
+chmod +x "$ROOT_DIR/start.sh" "$ROOT_DIR/mint/desktop.py" 2>/dev/null || true
 
-# ─── Create desktop shortcut ───
+# ── Admin password setup ──
 echo ""
-echo "🖥️ Desktop shortcut үүсгэж байна..."
-DESKTOP_FILE="$HOME/Desktop/Миний_дэлгүүр.desktop"
-cat > "$DESKTOP_FILE" << EOF
+echo "🔒 Админ нууц үг тохируулах"
+echo "----------------------------------------"
+$VENV_PYTHON -c "
+import sys
+sys.path.insert(0, '$ROOT_DIR')
+from database import hash_password, get_db, get_setting
+
+existing = get_setting('admin_password_hash')
+if existing:
+    print('  Админ нууц үг аль хэдийн тохируулагдсан.')
+    print('  Өөрчлөх: python3 -c \"from database import hash_password, get_db; conn=get_db(); conn.execute(\\\"UPDATE settings SET value=? WHERE key=\\\\\"admin_password_hash\\\\\\\"\\\", (hash_password(\\\"шинэ_нууц_үг\\\"),)); conn.commit(); conn.close()\"')
+    sys.exit(0)
+
+import getpass
+password = getpass.getpass('  Шинэ админ нууц үг оруулна уу (Enter = 1234): ') or '1234'
+pw_hash = hash_password(password)
+conn = None
+try:
+    conn = __import__('sqlite3').connect(os.path.join('$ROOT_DIR', 'pos.db'))
+    conn.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('admin_password_hash', pw_hash))
+    conn.commit()
+    print('  ✅ Админ нууц үг тохируулагдлаа')
+finally:
+    if conn:
+        conn.close()
+"
+
+# ── XFCE compositor optimization (Mint-specific) ──
+echo ""
+echo "🎨 XFCE дэлгэцийн тохиргоо оновчтой болгож байна..."
+# Set XFCE compositor off for i5 2nd gen hardware
+if command -v xfconf-query &>/dev/null; then
+    xfconf-query -c xfwm4 -p /general/use_compositing -s false 2>/dev/null && \
+    echo "  ✅ XFCE compositor унтраагдлаа (хуучин комп-д илүү хурдтай)" || true
+else
+    echo "  ℹ️  xfconf-query олдсонгүй (XFCE биш байж магадгүй)"
+fi
+# XFCE screensaver off via xset
+xset s off -dpms 2>/dev/null || true
+
+# ── Desktop shortcut ──
+echo ""
+echo "📋 Desktop товч үүсгэж байна..."
+DESKTOP_DIR="${XDG_DESKTOP_DIR:-$HOME/Desktop}"
+mkdir -p "$DESKTOP_DIR" 2>/dev/null || DESKTOP_DIR="$HOME"
+DESKTOP_FILE="$DESKTOP_DIR/Моност_POS.desktop"
+
+cat > "$DESKTOP_FILE" << DESKTOPEOF
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Миний дэлгүүр
-Comment=POS систем — Борлуулалт, нөөц, тайлан
-Exec=/bin/bash -c 'cd $SCRIPT_DIR && ./ubuntu/start.sh'
-Path=$SCRIPT_DIR
-Icon=$SCRIPT_DIR/static/pos-icon.png
+Name=Моност POS
+Comment=Кассын систем — Борлуулалт, бараа, тайлан
+Exec=$ROOT_DIR/start.sh
+Path=$ROOT_DIR
+Icon=$ROOT_DIR/static/pos-icon.png
 Terminal=false
 Categories=Office;Finance;
 StartupNotify=true
-Name[mn]=Миний дэлгүүр
-Comment[mn]=Борлуулалтын систем
-EOF
+StartupWMClass=Моност POS
+Keywords=pos;касс;sale;store;point of sale;борлуулалт;дэлгүүр
+DESKTOPEOF
 chmod +x "$DESKTOP_FILE"
-chmod +x "$SCRIPT_DIR/ubuntu/start.sh"
-chmod +x "$SCRIPT_DIR/ubuntu/desktop.py"
-echo "✅ Desktop shortcut: $DESKTOP_FILE"
+echo "  ✅ Desktop товч: $DESKTOP_FILE"
 
-# ─── Auto-start on login ───
-echo ""
-echo "🔄 Авто асаалт тохируулж байна..."
-AUTOSTART_DIR="$HOME/.config/autostart"
-mkdir -p "$AUTOSTART_DIR"
-cp "$DESKTOP_FILE" "$AUTOSTART_DIR/Миний_дэлгүүр.desktop"
-echo "✅ Login үед автоматаар асна"
-
-# ─── Create desktop shortcut on all users' desktops ───
-for user_dir in /home/*; do
-    if [ -d "$user_dir/Desktop" ] && [ "$user_dir" != "$HOME" ]; then
-        cp "$DESKTOP_FILE" "$user_dir/Desktop/Миний_дэлгүүр.desktop" 2>/dev/null || true
-    fi
-done
-
-# ─── Install systemd service (optional) ───
-if command -v systemctl &> /dev/null; then
-    echo ""
-    echo "🔧 Системийн үйлчилгээ (systemd) суулгах уу? [y/N]"
-    read -r INSTALL_SERVICE
-    if [ "$INSTALL_SERVICE" = "y" ] || [ "$INSTALL_SERVICE" = "Y" ]; then
-        sudo cp pos.service /etc/systemd/system/minii-delguur.service
-        sudo sed -i "s|/opt/minii-delguur|$SCRIPT_DIR|g" /etc/systemd/system/minii-delguur.service
-        sudo systemctl daemon-reload
-        sudo systemctl enable minii-delguur.service
-        echo "✅ systemd үйлчилгээ суулаа: sudo systemctl start minii-delguur"
-    fi
+# ── Autostart ──
+read -p $'\n🚀 Компьютер асахад автоматаар эхлэх үү? (y/N): ' -r AUTOSTART
+if [[ "$AUTOSTART" =~ ^[Yy]$ ]]; then
+    mkdir -p "$HOME/.config/autostart"
+    cp "$DESKTOP_FILE" "$HOME/.config/autostart/"
+    echo "  ✅ Автоматаар эхлэхээр тохируулагдлаа"
 fi
 
-# ─── Done ───
+# ── Done ──
 echo ""
 echo "============================================"
-echo "  ✅ Суулгалт амжилттай дууслаа!"
+echo "  ✅ Суулгалт дууслаа!"
 echo "============================================"
 echo ""
-echo "🚀 Эхлүүлэх:"
-echo "   ./ubuntu/start.sh       # Desktop горим (кассчин + үйлчлүүлэгч цонх)"
-echo "   source venv/bin/activate && python3 app.py   # Вэб горим (http://localhost:8765)"
+echo "  Эхлүүлэх:"
+echo "    • Desktop дээрх 'Моност POS' товч дээр дарна уу"
+echo "    • Эсвэл:  ./start.sh"
 echo ""
-echo "⚙️ Эхний тохируулга:"
-echo "   1. Админ нууц үг тохируулах (баруун дээд булан)"
-echo "   2. eBarimt тохиргоо (Мерчант TIN, API URL, TTD код)"
-echo "   3. Хэвлэгчийн порт (ихэвчлэн /dev/usb/lp0)"
+echo "  Админ хуудас:  http://localhost:8765/settings"
+echo "  Нууц үг:        Таны тохируулсан нууц үг (эсвэл 1234)"
 echo ""
-echo "📖 Дэлгэрэнгүй: POS_SYSTEM_DOCS.txt"
-echo "============================================"
+echo "  Бараа нэмэх:    Бараа -> + Шинэ бараа"
+echo "  Тайлан:         Тайлан"
+echo ""
+read -p $'  Одоо эхлүүлэх үү? (y/N): ' -r LAUNCH
+if [[ "$LAUNCH" =~ ^[Yy]$ ]]; then
+    "$ROOT_DIR/start.sh" &
+fi

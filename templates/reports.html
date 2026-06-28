@@ -4,16 +4,8 @@
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script>
-var CATEGORY_ICONS = {
-    'Сүүн бүтээгдэхүүн': '🥛', 'Талх нарийн боов': '🍞', 'Өндөг': '🥚',
-    'Будаа': '🍚', 'Гоймон': '🍜', 'Тос': '🛢️', 'Чихэр': '🍬',
-    'Давс амтлагч': '🧂', 'Жимс': '🍎', 'Ус ундаа': '🥤', 'Бусад': '📦'
-};
-var CATEGORY_COLORS = {
-    'Сүүн бүтээгдэхүүн': '#3B82F6', 'Талх нарийн боов': '#F59E0B', 'Өндөг': '#EAB308',
-    'Будаа': '#22C55E', 'Гоймон': '#EF4444', 'Тос': '#A855F7', 'Чихэр': '#06B6D4',
-    'Давс амтлагч': '#78716C', 'Жимс': '#84CC16', 'Ус ундаа': '#0EA5E9', 'Бусад': '#6B7280'
-};
+var CATEGORY_ICONS = {{ CATEGORY_ICONS | tojson }};
+var CATEGORY_COLORS = {{ CATEGORY_COLORS | tojson }};
 
 function setQuickFilter(type) {
     var today = new Date();

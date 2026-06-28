@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Нэвтрэх{% endblock %}
+{% block head %}
+<style>
+.login-container {
+    max-width: 400px; margin: 80px auto; padding: 2rem;
+    background: var(--color-surface); border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+}
+.login-container h1 { text-align: center; margin-bottom: 1.5rem; font-size: 1.5rem; }
+.login-container label { display: block; margin-bottom: 0.5rem; font-weight: 600; }
+.login-container input[type="password"] {
+    width: 100%; padding: 0.75rem; border: 2px solid var(--color-border);
+    border-radius: 8px; font-size: 1rem; box-sizing: border-box;
+}
+.login-container button {
+    width: 100%; padding: 0.75rem; margin-top: 1rem;
+    background: var(--color-primary); color: #fff; border: none;
+    border-radius: 8px; font-size: 1rem; cursor: pointer;
+}
+.login-container button:hover { opacity: 0.9; }
+.error-msg { color: var(--color-danger); text-align: center; margin: 0.5rem 0; font-size: 0.9rem; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="login-container">
+    <h1>Нэвтрэх</h1>
+    {% if error %}
+    <div class="error-msg">{{ error }}</div>
+    {% endif %}
+    <form method="POST" action="{{ url_for('login_page') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="password">Нууц үг</label>
+        <input type="password" id="password" name="password" placeholder="Нууц үгээ оруулна уу" autofocus required>
+        <button type="submit">Нэвтрэх</button>
+    </form>
+</div>
+{% endblock %}

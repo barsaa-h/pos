@@ -27,7 +27,8 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(PROJECT_DIR)
 sys.path.insert(0, ROOT_DIR)
 
-FLASK_PORT = 8765
+FLASK_PORT = int(os.environ.get("POS_PORT", "8765"))
+DEV_MODE = "--dev" in sys.argv
 LOCK_FILE = os.path.join(tempfile.gettempdir(), "pos-app-ubuntu.lock")
 
 # File logging for production debugging
@@ -65,6 +66,7 @@ def acquire_lock():
                     os.kill(int(old_pid), 0)  # Signal 0 = check if alive
                     return False  # PID alive, legit lock
             except (OSError, ValueError):
+                logger.warning("Unhandled exception in: except (OSError, ValueError):")
                 pass
             # Stale lock - force acquire
             _lock_fd.close()
@@ -85,14 +87,14 @@ def release_lock():
             fcntl.flock(_lock_fd, fcntl.LOCK_UN)
             _lock_fd.close()
         except Exception:
+            logger.warning("Unhandled exception in: except Exception:")
             pass
         _lock_fd = None
     try:
         os.remove(LOCK_FILE)
     except Exception:
+        logger.warning("Unhandled exception in: except Exception:")
         pass
-
-
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
@@ -104,9 +106,22 @@ def is_port_in_use(port):
 
 
 def run_flask(port):
+    # Avoid double-init: importing app triggers _application = create_app()
+    # at module level, which would spawn GC/checkpoint/heartbeat threads twice
+    # and double the eBarimt retry cost. ~150ms saved on slow hardware.
+    os.environ.setdefault("POS_SKIP_MODULE_INIT", "1")
     from app import create_app
     app = create_app()
-    app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+    app.run(
+        host="127.0.0.1",
+        port=port,
+        debug=DEV_MODE,
+        use_reloader=DEV_MODE,
+        extra_files=[
+            os.path.join(ROOT_DIR, "templates"),
+            os.path.join(ROOT_DIR, "static"),
+        ] if DEV_MODE else None,
+    )
 
 
 def wait_for_server(port, timeout=15):
@@ -137,13 +152,6 @@ def get_secondary_monitor():
     return None
 
 
-def get_icon_path():
-    png = os.path.join(ROOT_DIR, "static", "pos-icon.png")
-    if os.path.exists(png):
-        return png
-    return None
-
-
 _splash_root = None
 
 
@@ -151,6 +159,7 @@ def show_splash():
     global _splash_root
     try:
         import tkinter as tk
+        from tkinter import font
         _splash_root = tk.Tk()
         _splash_root.overrideredirect(True)
         _splash_root.attributes("-topmost", True)
@@ -160,11 +169,12 @@ def show_splash():
         x, y = (ws - w) // 2, (hs - h) // 2
         _splash_root.geometry(f"{w}x{h}+{x}+{y}")
         _splash_root.configure(bg="#1a1a2e")
-        tk.Label(_splash_root, text="Миний дэлгүүр", font=("Ubuntu", 20, "bold"),
+        SPLASH_FONT = "Ubuntu" if any(f.lower().startswith("ubuntu") for f in font.families(_splash_root)) else "Sans"
+        tk.Label(_splash_root, text="Моност", font=(SPLASH_FONT, 20, "bold"),
                  fg="white", bg="#1a1a2e").pack(pady=(35, 5))
-        tk.Label(_splash_root, text="POS Систем", font=("Ubuntu", 13),
+        tk.Label(_splash_root, text="POS Систем", font=(SPLASH_FONT, 13),
                  fg="#aaaacc", bg="#1a1a2e").pack()
-        tk.Label(_splash_root, text="Ачааллаж байна...", font=("Ubuntu", 10),
+        tk.Label(_splash_root, text="Ачааллаж байна...", font=(SPLASH_FONT, 10),
                  fg="#8888aa", bg="#1a1a2e").pack(pady=(20, 0))
         _splash_root.update()
     except Exception as e:
@@ -177,6 +187,7 @@ def hide_splash():
         try:
             _splash_root.destroy()
         except Exception:
+            logger.warning("Unhandled exception in: except Exception:")
             pass
         _splash_root = None
 
@@ -230,26 +241,25 @@ class POSApplication:
                          "Программ аль хэдийн ажиллаж байна.\nTaskbar эсвэл tray хэсгийг шалгана уу.")
             sys.exit(0)
 
-        if is_port_in_use(FLASK_PORT):
-            logger.error(f"Port {FLASK_PORT} already in use")
-            show_message("error", "Порт ашиглагдаж байна",
-                         f"{FLASK_PORT} порт өөр програмд ашиглагдаж байна.\nТухайн програмыг хаагаад дахин оролдоно уу.")
-            sys.exit(1)
+        flask_already_running = is_port_in_use(FLASK_PORT)
+        if flask_already_running:
+            logger.info(f"Flask already running on port {FLASK_PORT}, skipping server start")
 
         show_splash()
 
-        self.flask_thread = threading.Thread(target=run_flask, args=(FLASK_PORT,), daemon=True)
-        self.flask_thread.start()
-        logger.info(f"Flask server starting on port {FLASK_PORT}...")
+        if not flask_already_running:
+            self.flask_thread = threading.Thread(target=run_flask, args=(FLASK_PORT,), daemon=True)
+            self.flask_thread.start()
+            logger.info(f"Flask server starting on port {FLASK_PORT}...")
 
-        if not wait_for_server(FLASK_PORT):
-            hide_splash()
-            logger.error("Flask server failed to start within timeout")
-            show_message("error", "Сервер асахгүй байна",
-                         "Сервер ачааллахад алдаа гарлаа.\nlogs/pos.log файлыг шалгана уу.")
-            release_lock()
-            sys.exit(1)
-        logger.info("Flask server is ready")
+            if not wait_for_server(FLASK_PORT):
+                hide_splash()
+                logger.error("Flask server failed to start within timeout")
+                show_message("error", "Сервер асахгүй байна",
+                             "Сервер ачааллахад алдаа гарлаа.\nlogs/pos.log файлыг шалгана уу.")
+                release_lock()
+                sys.exit(1)
+            logger.info("Flask server is ready")
 
         # Auto-detect printer port on startup
         try:
@@ -270,7 +280,7 @@ class POSApplication:
         base_url = f"http://127.0.0.1:{FLASK_PORT}"
 
         self.cashier_window = webview.create_window(
-            "Миний дэлгүүр — Кассчин", f"{base_url}/",
+            "Моност — Кассчин", f"{base_url}/",
             fullscreen=True, min_size=(1366, 768),
             text_select=False, confirm_close=False
         )
@@ -280,14 +290,14 @@ class POSApplication:
         if secondary:
             x, y, w, h = secondary
             self.customer_window = webview.create_window(
-                "Миний дэлгүүр — Үйлчлүүлэгч", f"{base_url}/customer",
+                "Моност — Үйлчлүүлэгч", "",
                 x=x, y=y, width=w, height=h,
                 fullscreen=True, text_select=False, confirm_close=False
             )
             logger.info(f"Customer window on secondary monitor ({x},{y})")
         else:
             self.customer_window = webview.create_window(
-                "Миний дэлгүүр — Үйлчлүүлэгч", f"{base_url}/customer",
+                "Моност — Үйлчлүүлэгч", "",
                 fullscreen=True, text_select=False, confirm_close=False
             )
             logger.info("Customer window on primary monitor (no secondary found)")
@@ -304,9 +314,14 @@ class POSApplication:
             ]),
         ]
 
+        def _on_start():
+            if self.customer_window:
+                self.customer_window.load_url(f"{base_url}/customer")
+            logger.info("Customer window navigated to /customer")
+
         logger.info("Starting webview event loop...")
         try:
-            webview.start(menu=menu_items, debug=False, http_server=False, private_mode=False)
+            webview.start(func=_on_start, menu=menu_items, debug=False, http_server=False, private_mode=False)
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
         except Exception as e:
@@ -336,6 +351,7 @@ class POSApplication:
 def main():
     parser = argparse.ArgumentParser(description="POS Ubuntu Desktop")
     parser.add_argument("--tray", action="store_true")
+    parser.add_argument("--dev", action="store_true", help="Enable development mode (auto-reload)")
     args = parser.parse_args()
     app = POSApplication(start_minimized=args.tray)
     app.start()

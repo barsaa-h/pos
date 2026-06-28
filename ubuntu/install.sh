@@ -1,5 +1,6 @@
 #!/bin/bash
-# Ubuntu POS Installer
+# Ubuntu POS Installer — one-click setup
+# Run: ./ubuntu/install.sh
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -9,31 +10,36 @@ echo "============================================"
 echo "  Миний дэлгүүр — Ubuntu суулгах"
 echo "============================================"
 
-# Check Python
 if ! command -v python3 &> /dev/null; then
     echo "❌ Python 3 олдсонгүй. sudo apt install python3 python3-venv python3-pip"
     exit 1
 fi
 echo "✅ Python $(python3 --version)"
 
-# Check GTK/WebKit dependency
 if ! dpkg -l libwebkit2gtk-4.1-0 &>/dev/null && ! dpkg -l libwebkit2gtk-4.0-37 &>/dev/null; then
     echo "⚠️  WebKit2GTK суулгаагүй байна. pywebview-д шаардлагатай."
     echo "   Суулгах: sudo apt install libwebkit2gtk-4.1-dev"
 fi
 
-# Venv
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-fi
-source venv/bin/activate
-pip install --upgrade pip -q
-pip install -r requirements.txt -q
+# Bootstrap via root launcher
+python3 -c "
+import sys, os, subprocess
+PROJECT_DIR = '$ROOT_DIR'
+sys.path.insert(0, PROJECT_DIR)
 
-# Initialize DB
-python3 -c "import database as db; db.init_db(); print('✅ Database бэлэн')"
+vp = os.path.join(PROJECT_DIR, 'venv', 'bin', 'python3')
+if not os.path.exists(vp):
+    print('📦 Virtual environment үүсгэж байна...')
+    subprocess.run([sys.executable, '-m', 'venv', os.path.join(PROJECT_DIR, 'venv')], check=True)
 
-# Create directories
+subprocess.run([vp, '-m', 'pip', 'install', '--upgrade', 'pip', '-q'], check=True)
+subprocess.run([vp, '-m', 'pip', 'install', '-r', os.path.join(PROJECT_DIR, 'requirements.txt'), '-q'], check=True)
+
+import database as db
+db.init_db()
+print('✅ Database бэлэн')
+"
+
 mkdir -p logs backups static/uploads
 
 # Desktop shortcut
@@ -46,12 +52,13 @@ Name=Миний дэлгүүр
 Name[en]=My Store POS
 Comment=POS систем — Борлуулалт, нөөц, тайлан
 Comment[en]=Point of Sale — Sales, inventory, reports
-Exec=ROOT_DIR_PLACEHOLDER/ubuntu/start.sh
+Exec=ROOT_DIR_PLACEHOLDER/start.sh
 Path=ROOT_DIR_PLACEHOLDER
 Icon=ROOT_DIR_PLACEHOLDER/static/pos-icon.png
 Terminal=false
 Categories=Office;Finance;
 StartupNotify=true
+StartupWMClass=Миний дэлгүүр
 Keywords=pos;sale;store;point of sale;борлуулалт;дэлгүүр;касс
 MimeType=
 DESKTOPEOF
@@ -62,9 +69,9 @@ chmod +x "$DESKTOP_FILE"
 mkdir -p "$HOME/.config/autostart"
 cp "$DESKTOP_FILE" "$HOME/.config/autostart/"
 
-chmod +x ubuntu/start.sh ubuntu/desktop.py
+chmod +x start.sh ubuntu/start.sh ubuntu/desktop.py
 
 echo ""
 echo "✅ Суулгалт дууслаа!"
 echo "   Desktop дээрх 'Миний дэлгүүр' дүрс дээр давхар дарж эхлүүлнэ үү."
-echo "   Эсвэл: ./ubuntu/start.sh"
+echo "   Эсвэл: ./start.sh"
