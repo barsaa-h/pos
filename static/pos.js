@@ -809,12 +809,12 @@ barcodeInput.addEventListener('input', function() {
     if (_barcodeBuffer.length > 0) {
         _barcodeTimer = setTimeout(function() {
             var bc = _barcodeBuffer.trim();
-            if (bc.length > 3) {
+            if (bc.length >= 5) {
                 barcodeInput.value = '';
                 _barcodeBuffer = '';
                 lookupBarcode(bc);
             }
-        }, 50);
+        }, 300);
     }
 });
 

@@ -2222,7 +2222,7 @@ tr:hover {
     z-index: 1;
 }
 
-.search-bar-wrapper input {
+.search-bar-wrapper .form-control {
     padding-left: 40px;
     padding-right: 14px;
     width: 100%;
