@@ -11,6 +11,7 @@ gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, Pango
 
 from posgtk.cache import css_class_name
+from posgtk.scaling import scaled_px, scaled_size_request
 
 CAT_ICONS = {
     "Хүнс": "🍖", "Ундаа": "🥤", "Амттан": "🍬",
@@ -48,7 +49,7 @@ def make_product_card(product, on_click, cache=None):
     btn = Gtk.Button()
     btn.set_relief(Gtk.ReliefStyle.NONE)
 
-    btn.set_size_request(135, 175)
+    scaled_size_request(btn, 135, 175)
     btn.get_style_context().add_class("product-card")
 
     name = product.get("name", "")
@@ -156,11 +157,11 @@ def make_cart_item_row(item, on_remove, on_qty_change):
     row = Gtk.ListBoxRow()
     row.get_style_context().add_class("cart-item")
 
-    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-    hbox.set_margin_top(6)
-    hbox.set_margin_bottom(6)
-    hbox.set_margin_start(6)
-    hbox.set_margin_end(6)
+    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(6))
+    hbox.set_margin_top(scaled_px(6))
+    hbox.set_margin_bottom(scaled_px(6))
+    hbox.set_margin_start(scaled_px(6))
+    hbox.set_margin_end(scaled_px(6))
 
     icon_label = Gtk.Label(label=get_category_icon(item.category))
     icon_label.get_style_context().add_class("item-icon")

@@ -4,12 +4,15 @@ Optimized for low-end hardware (i5-2450M / Intel HD 3000).
 Reuses widgets instead of destroying/recreating them to prevent UI stutter.
 """
 import time
+import re
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, GLib, Pango
 
 from posgtk.widgets import format_money
+from posgtk.scaling import scaled_px, get_scale
+from posgtk.theme import _scale_css
 
 CATEGORY_ICONS = {
     "Хүнс": "🍖", "Ундаа": "🥤", "Амттан": "🍬", "Сүүн бүтээгдэхүүн": "🥛",
@@ -60,7 +63,8 @@ class CustomerDisplayWindow(Gtk.Window):
         self._item_widgets = {}
 
         provider = Gtk.CssProvider()
-        provider.load_from_data(CUSTOMER_CSS)
+        customer_css = _scale_css(CUSTOMER_CSS.decode(), get_scale()).encode()
+        provider.load_from_data(customer_css)
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
@@ -88,9 +92,9 @@ class CustomerDisplayWindow(Gtk.Window):
 
         top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         top_bar.set_name("customer-top-bar")
-        top_bar.set_margin_top(24)
-        top_bar.set_margin_start(48)
-        top_bar.set_margin_end(48)
+        top_bar.set_margin_top(scaled_px(24))
+        top_bar.set_margin_start(scaled_px(48))
+        top_bar.set_margin_end(scaled_px(48))
 
         store_name = Gtk.Label(label=self._store_info.get("name", "Моност").upper())
         store_name.set_name("cd-store-name")
@@ -132,7 +136,7 @@ class CustomerDisplayWindow(Gtk.Window):
         subtitle = Gtk.Label()
         subtitle.set_markup('<span font_weight="700" size="28000" foreground="#0f172a">Бараа сонгоно уу</span>')
         subtitle.set_name("cd-idle-subtitle")
-        subtitle.set_margin_top(16)
+        subtitle.set_margin_top(scaled_px(16))
 
         box.pack_start(icon_label, False, False, 0)
         box.pack_start(title, False, False, 0)
@@ -142,13 +146,13 @@ class CustomerDisplayWindow(Gtk.Window):
     def _build_shopping_view(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         box.set_name("cd-shopping-view")
-        box.set_margin_start(48)
-        box.set_margin_end(48)
-        box.set_margin_bottom(48)
+        box.set_margin_start(scaled_px(48))
+        box.set_margin_end(scaled_px(48))
+        box.set_margin_bottom(scaled_px(48))
 
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        header_box.set_margin_top(16)
-        header_box.set_margin_bottom(24)
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(12))
+        header_box.set_margin_top(scaled_px(16))
+        header_box.set_margin_bottom(scaled_px(24))
         header_label = Gtk.Label(label="🛒 Таны сагс")
         header_label.set_name("cd-shop-header")
         header_label.set_halign(Gtk.Align.START)
@@ -161,11 +165,11 @@ class CustomerDisplayWindow(Gtk.Window):
 
         self.item_grid = Gtk.FlowBox()
         self.item_grid.set_name("cd-item-grid")
-        self.item_grid.set_max_children_per_line(2)
-        self.item_grid.set_min_children_per_line(2)
+        self.item_grid.set_max_children_per_line(3)
+        self.item_grid.set_min_children_per_line(1)
         self.item_grid.set_homogeneous(True)
-        self.item_grid.set_column_spacing(12)
-        self.item_grid.set_row_spacing(12)
+        self.item_grid.set_column_spacing(scaled_px(12))
+        self.item_grid.set_row_spacing(scaled_px(12))
         self.item_grid.set_selection_mode(Gtk.SelectionMode.NONE)
 
         scrolled = Gtk.ScrolledWindow()
@@ -176,7 +180,7 @@ class CustomerDisplayWindow(Gtk.Window):
 
         total_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         total_box.set_name("cd-total-box")
-        total_box.set_margin_top(16)
+        total_box.set_margin_top(scaled_px(16))
         total_label = Gtk.Label(label="💰 НИЙТ")
         total_label.set_name("cd-total-label")
         total_box.pack_start(total_label, False, False, 0)
@@ -263,12 +267,12 @@ class CustomerDisplayWindow(Gtk.Window):
         category = item.category if hasattr(item, 'category') else item.get("category", "")
         icon = CATEGORY_ICONS.get(category, "📦")
 
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(8))
         card.set_name("cd-item-card")
-        card.set_margin_top(6)
-        card.set_margin_bottom(6)
-        card.set_margin_start(12)
-        card.set_margin_end(12)
+        card.set_margin_top(scaled_px(6))
+        card.set_margin_bottom(scaled_px(6))
+        card.set_margin_start(scaled_px(12))
+        card.set_margin_end(scaled_px(12))
 
         icon_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         icon_box.set_halign(Gtk.Align.CENTER)

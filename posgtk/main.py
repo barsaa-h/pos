@@ -15,6 +15,8 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, GLib, GObject, Gio
 
+from posgtk.scaling import init_scaling, get_scale, scaled_px, scaled_size_request
+
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
@@ -44,7 +46,7 @@ def _make_placeholder(name):
     btn = Gtk.Button(label="Ачаалах")
     btn.set_halign(Gtk.Align.CENTER)
     btn.set_valign(Gtk.Align.CENTER)
-    btn.set_size_request(120, 40)
+    btn.set_size_request(scaled_px(120), scaled_px(40))
     btn.connect("clicked", lambda w: None)
     b.pack_start(btn, False, False, 0)
     return b
@@ -147,17 +149,10 @@ class POSApplication(Gtk.Application):
         from posgtk.theme import Theme
         self.theme = Theme()
 
-        css_scale = 1.0
+        # Initialize global scaling (one-time at startup)
         display = Gdk.Display.get_default()
-        if display:
-            mon = display.get_primary_monitor() or display.get_monitor(0)
-            geo = mon.get_geometry()
-            scale_factor = mon.get_scale_factor() if hasattr(mon, 'get_scale_factor') else 1
-            phys_h = geo.height * scale_factor
-            if scale_factor > 1:
-                css_scale = 1.0
-            else:
-                css_scale = max(0.5, round(phys_h / 768, 2))
+        init_scaling(display)
+        css_scale = get_scale()
 
         try:
             import database as db
@@ -202,7 +197,7 @@ class POSApplication(Gtk.Application):
         header.set_custom_title(title_label)
 
         self.clock_label = Gtk.Label(label="--:--:--")
-        self.clock_label.set_margin_end(12)
+        self.clock_label.set_margin_end(scaled_px(12))
         self.clock_label.get_style_context().add_class("clock-label")
         header.pack_end(self.clock_label)
 
@@ -227,13 +222,15 @@ class POSApplication(Gtk.Application):
 
     def _build_sidebar(self):
         listbox = Gtk.ListBox()
-        listbox.set_size_request(200, -1)
+        scaled_size_request(listbox, 200, -1)
         listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
         listbox.connect("row-selected", self._on_sidebar_select)
         listbox.get_style_context().add_class("sidebar-list")
 
         logo = Gtk.ListBoxRow()
-        logo_box = Gtk.Box(spacing=8, margin_start=14, margin_end=14, margin_top=16, margin_bottom=12)
+        logo_box = Gtk.Box(spacing=scaled_px(8), 
+                          margin_start=scaled_px(14), margin_end=scaled_px(14), 
+                          margin_top=scaled_px(16), margin_bottom=scaled_px(12))
         logo_label = Gtk.Label(label="Моност")
         logo_label.get_style_context().add_class("title")
         logo_box.pack_start(logo_label, False, False, 0)
@@ -255,7 +252,9 @@ class POSApplication(Gtk.Application):
         for icon, label, name in items:
             row = Gtk.ListBoxRow()
             row.set_name(name)
-            h = Gtk.Box(spacing=8, margin_start=12, margin_end=12, margin_top=6, margin_bottom=6)
+            h = Gtk.Box(spacing=scaled_px(8), 
+                       margin_start=scaled_px(12), margin_end=scaled_px(12), 
+                       margin_top=scaled_px(6), margin_bottom=scaled_px(6))
             h.pack_start(Gtk.Label(label=icon, xalign=0), False, False, 0)
             h.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
             row.add(h)

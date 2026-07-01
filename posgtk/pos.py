@@ -18,6 +18,7 @@ from posgtk.widgets import (
     CartItem, format_money, make_product_card, make_cart_item_row,
     make_category_button,
 )
+from posgtk.scaling import scaled_px, scaled_size_request
 
 logger = logging.getLogger("pos.gtk.pos")
 
@@ -68,11 +69,11 @@ class POSScreen(Gtk.Box):
         left.set_size_request(-1, -1)
         left.get_style_context().add_class("pos-left")
 
-        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        top_bar.set_margin_top(8)
-        top_bar.set_margin_bottom(4)
-        top_bar.set_margin_start(8)
-        top_bar.set_margin_end(8)
+        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
+        top_bar.set_margin_top(scaled_px(8))
+        top_bar.set_margin_bottom(scaled_px(4))
+        top_bar.set_margin_start(scaled_px(8))
+        top_bar.set_margin_end(scaled_px(8))
 
         self.barcode_entry = Gtk.Entry()
         self.barcode_entry.set_placeholder_text("Баркод сканнердах эсвэл оруулна уу...")
@@ -88,11 +89,11 @@ class POSScreen(Gtk.Box):
         search_revealer.add(self.search_entry)
         self._search_revealer = search_revealer
 
-        search_bar_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        search_bar_row.set_margin_start(8)
-        search_bar_row.set_margin_end(8)
-        search_bar_row.set_margin_top(4)
-        search_bar_row.set_margin_bottom(4)
+        search_bar_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
+        search_bar_row.set_margin_start(scaled_px(8))
+        search_bar_row.set_margin_end(scaled_px(8))
+        search_bar_row.set_margin_top(scaled_px(4))
+        search_bar_row.set_margin_bottom(scaled_px(4))
         self.search_entry_inline = Gtk.Entry()
         self.search_entry_inline.set_placeholder_text("🔍  Бараа хайх...")
         self.search_entry_inline.get_style_context().add_class("search-entry-inline")
@@ -103,11 +104,11 @@ class POSScreen(Gtk.Box):
 
         left.pack_start(top_bar, False, False, 0)
 
-        self.category_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        self.category_box.set_margin_start(8)
-        self.category_box.set_margin_end(8)
-        self.category_box.set_margin_top(4)
-        self.category_box.set_margin_bottom(4)
+        self.category_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(4))
+        self.category_box.set_margin_start(scaled_px(8))
+        self.category_box.set_margin_end(scaled_px(8))
+        self.category_box.set_margin_top(scaled_px(4))
+        self.category_box.set_margin_bottom(scaled_px(4))
         self._build_category_buttons()
         left.pack_start(self.category_box, False, False, 0)
 
@@ -117,23 +118,23 @@ class POSScreen(Gtk.Box):
 
         self.product_grid = Gtk.FlowBox()
         self.product_grid.set_valign(Gtk.Align.START)
-        self.product_grid.set_max_children_per_line(5)
+        self.product_grid.set_max_children_per_line(6)
         self.product_grid.set_min_children_per_line(2)
         self.product_grid.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.product_grid.set_activate_on_single_click(True)
         self.product_grid.set_homogeneous(True)
-        self.product_grid.set_row_spacing(6)
-        self.product_grid.set_column_spacing(6)
-        self.product_grid.set_margin_top(8)
-        self.product_grid.set_margin_bottom(8)
-        self.product_grid.set_margin_start(8)
-        self.product_grid.set_margin_end(8)
+        self.product_grid.set_row_spacing(scaled_px(6))
+        self.product_grid.set_column_spacing(scaled_px(6))
+        self.product_grid.set_margin_top(scaled_px(8))
+        self.product_grid.set_margin_bottom(scaled_px(8))
+        self.product_grid.set_margin_start(scaled_px(8))
+        self.product_grid.set_margin_end(scaled_px(8))
         self.product_grid.connect("child-activated", self._on_grid_child_activated)
         self.product_grid.connect("key-press-event", self._on_grid_key_press)
         grid_box.pack_start(self.product_grid, True, True, 0)
 
         self._empty_label = Gtk.Label(label="Бараа олдсонгүй")
-        self._empty_label.set_margin_top(40)
+        self._empty_label.set_margin_top(scaled_px(40))
         self._empty_label.set_halign(Gtk.Align.CENTER)
         self._empty_label.set_no_show_all(True)
         self._empty_label.set_visible(False)
@@ -146,15 +147,15 @@ class POSScreen(Gtk.Box):
 
     def _build_right_panel(self):
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        right.set_size_request(340, -1)
+        scaled_size_request(right, 340, -1)
         right.get_style_context().add_class("cart-panel")
 
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(4))
         header_box.get_style_context().add_class("cart-header-bar")
-        header_box.set_margin_top(10)
-        header_box.set_margin_bottom(8)
-        header_box.set_margin_start(14)
-        header_box.set_margin_end(14)
+        header_box.set_margin_top(scaled_px(10))
+        header_box.set_margin_bottom(scaled_px(8))
+        header_box.set_margin_start(scaled_px(14))
+        header_box.set_margin_end(scaled_px(14))
 
         cart_title = Gtk.Label(label="🛒 Сагс")
         cart_title.get_style_context().add_class("cart-title")
@@ -165,11 +166,11 @@ class POSScreen(Gtk.Box):
         header_box.pack_start(self.cart_count_label, False, False, 0)
 
         self.tax_mode_label = Gtk.Label(label="")
-        self.tax_mode_label.set_margin_start(8)
+        self.tax_mode_label.set_margin_start(scaled_px(8))
         self.tax_mode_label.set_tooltip_text("eBarimt төрөл (F7)")
         header_box.pack_start(self.tax_mode_label, False, False, 0)
 
-        ebarimt_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        ebarimt_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(2))
         ebarimt_btn = Gtk.Button(label="\u26a0")
         ebarimt_btn.set_tooltip_text("\u0425\u0443\u043b\u0434\u0430\u0430\u043d\u0434 \u0430\u043c\u0436\u0438\u043b\u0442\u0433\u04af\u0439 eBarimt")
         ebarimt_btn.set_relief(Gtk.ReliefStyle.NONE)
@@ -181,7 +182,7 @@ class POSScreen(Gtk.Box):
         ebarimt_box.pack_start(self.ebarimt_badge, False, False, 0)
         header_box.pack_start(ebarimt_box, False, False, 0)
 
-        held_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        held_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(2))
         held_btn = Gtk.Button(label="📋")
         held_btn.set_tooltip_text("\u0425\u04af\u043b\u044d\u044d\u043b\u0433\u044d\u0441\u044d\u043d \u0437\u0430\u0445\u0438\u0430\u043b\u0433\u0443\u0443\u0434")
         held_btn.set_relief(Gtk.ReliefStyle.NONE)
@@ -209,7 +210,7 @@ class POSScreen(Gtk.Box):
         cart_scroll.add(self.cart_list)
         right.pack_start(cart_scroll, True, True, 0)
 
-        totals_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        totals_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(2))
         totals_box.get_style_context().add_class("cart-total-row")
 
         self.total_label = Gtk.Label()
@@ -220,22 +221,22 @@ class POSScreen(Gtk.Box):
 
         right.pack_start(totals_box, False, False, 0)
 
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_box.set_margin_top(8)
-        btn_box.set_margin_bottom(10)
-        btn_box.set_margin_start(12)
-        btn_box.set_margin_end(12)
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
+        btn_box.set_margin_top(scaled_px(8))
+        btn_box.set_margin_bottom(scaled_px(10))
+        btn_box.set_margin_start(scaled_px(12))
+        btn_box.set_margin_end(scaled_px(12))
 
         self.pay_btn = Gtk.Button(label="💰  ТӨЛБӨР ТӨЛӨХ")
-        self.pay_btn.set_size_request(-1, 54)
+        scaled_size_request(self.pay_btn, -1, 54)
         self.pay_btn.get_style_context().add_class("checkout-pay-btn")
         self.pay_btn.connect("clicked", self._on_pay_clicked)
         self.pay_btn.set_sensitive(False)
         btn_box.pack_start(self.pay_btn, True, True, 0)
 
-        hold_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=2)
+        hold_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(2))
         hold_btn = Gtk.Button(label="⏸")
-        hold_btn.set_size_request(54, 54)
+        scaled_size_request(hold_btn, 54, 54)
         hold_btn.set_tooltip_text("Түр хадгалах (F9)")
         hold_btn.get_style_context().add_class("hold-btn")
         hold_btn.connect("clicked", lambda b: self._on_hold_order_clicked())
@@ -431,7 +432,7 @@ class POSScreen(Gtk.Box):
             transient_for=self.get_toplevel(),
             flags=Gtk.DialogFlags.MODAL,
         )
-        dialog.set_default_size(320, 280)
+        dialog.set_default_size(scaled_px(320), scaled_px(280))
         content = dialog.get_content_area()
         content.set_spacing(0)
         content.set_margin_top(0)
@@ -441,10 +442,10 @@ class POSScreen(Gtk.Box):
 
         summary = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         summary.get_style_context().add_class("pay-select-summary")
-        summary.set_margin_start(24)
-        summary.set_margin_end(24)
-        summary.set_margin_top(20)
-        summary.set_margin_bottom(20)
+        summary.set_margin_start(scaled_px(24))
+        summary.set_margin_end(scaled_px(24))
+        summary.set_margin_top(scaled_px(20))
+        summary.set_margin_bottom(scaled_px(20))
 
         title_label = Gtk.Label(label="Төлбөрийн төрөл")
         title_label.set_halign(Gtk.Align.CENTER)
@@ -454,31 +455,31 @@ class POSScreen(Gtk.Box):
         total_label = Gtk.Label()
         total_label.set_markup(f'<span size="28000" weight="900" foreground="#FFFFFF">{format_money(total)}</span>')
         total_label.set_halign(Gtk.Align.CENTER)
-        total_label.set_margin_top(8)
+        total_label.set_margin_top(scaled_px(8))
         summary.pack_start(total_label, False, False, 0)
 
         content.pack_start(summary, False, False, 0)
 
-        btn_grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        btn_grid.set_margin_start(24)
-        btn_grid.set_margin_end(24)
-        btn_grid.set_margin_top(8)
-        btn_grid.set_margin_bottom(20)
+        btn_grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(10))
+        btn_grid.set_margin_start(scaled_px(24))
+        btn_grid.set_margin_end(scaled_px(24))
+        btn_grid.set_margin_top(scaled_px(8))
+        btn_grid.set_margin_bottom(scaled_px(20))
 
         cash_btn = Gtk.Button(label="💵  Бэлэн (F2)")
-        cash_btn.set_size_request(-1, 68)
+        scaled_size_request(cash_btn, -1, 68)
         cash_btn.get_style_context().add_class("pay-select-cash")
         cash_btn.connect("clicked", lambda b: [dialog.response(Gtk.ResponseType.OK), self._show_checkout("cash")])
         btn_grid.pack_start(cash_btn, False, False, 0)
 
         card_btn = Gtk.Button(label="💳  Карт (F4)")
-        card_btn.set_size_request(-1, 68)
+        scaled_size_request(card_btn, -1, 68)
         card_btn.get_style_context().add_class("pay-select-card")
         card_btn.connect("clicked", lambda b: [dialog.response(Gtk.ResponseType.OK), self._show_checkout("card")])
         btn_grid.pack_start(card_btn, False, False, 0)
 
         qr_btn = Gtk.Button(label="📱  QR (F5)")
-        qr_btn.set_size_request(-1, 68)
+        scaled_size_request(qr_btn, -1, 68)
         qr_btn.get_style_context().add_class("pay-select-qr")
         qr_btn.connect("clicked", lambda b: [dialog.response(Gtk.ResponseType.OK), self._show_checkout("qr")])
         btn_grid.pack_start(qr_btn, False, False, 0)
@@ -500,39 +501,39 @@ class POSScreen(Gtk.Box):
             transient_for=self.get_toplevel(),
             flags=Gtk.DialogFlags.MODAL,
         )
-        dialog.set_default_size(420, 400)
+        dialog.set_default_size(scaled_px(420), scaled_px(400))
         dialog.get_content_area().get_style_context().add_class("checkout-dialog")
         content = dialog.get_content_area()
-        content.set_spacing(8)
-        content.set_margin_top(12)
-        content.set_margin_bottom(12)
-        content.set_margin_start(16)
-        content.set_margin_end(16)
+        content.set_spacing(scaled_px(8))
+        content.set_margin_top(scaled_px(12))
+        content.set_margin_bottom(scaled_px(12))
+        content.set_margin_start(scaled_px(16))
+        content.set_margin_end(scaled_px(16))
 
         total_markup = f'<span size="24000" weight="900">\u041d\u0438\u0439\u0442: {format_money(total)}</span>'
         total_label = Gtk.Label()
         total_label.set_markup(total_markup)
         total_label.set_halign(Gtk.Align.CENTER)
-        total_label.set_margin_bottom(8)
+        total_label.set_margin_bottom(scaled_px(8))
         content.add(total_label)
 
-        pay_type_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        pay_type_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
         pay_type_box.set_halign(Gtk.Align.CENTER)
-        pay_type_box.set_margin_bottom(8)
+        pay_type_box.set_margin_bottom(scaled_px(8))
 
         cash_toggle = Gtk.ToggleButton(label="\U0001f4b5  \u0411\u044d\u043b\u044d\u043d (F2)")
         cash_toggle.get_style_context().add_class("payment-cash")
-        cash_toggle.set_size_request(-1, 44)
+        scaled_size_request(cash_toggle, -1, 44)
         pay_type_box.pack_start(cash_toggle, False, False, 0)
 
         card_toggle = Gtk.ToggleButton(label="\U0001f4b3  \u041a\u0430\u0440\u0442 (F4)")
         card_toggle.get_style_context().add_class("payment-card")
-        card_toggle.set_size_request(-1, 44)
+        scaled_size_request(card_toggle, -1, 44)
         pay_type_box.pack_start(card_toggle, False, False, 0)
 
         qr_toggle = Gtk.ToggleButton(label="\U0001f4f1  QR (F5)")
         qr_toggle.get_style_context().add_class("payment-qr")
-        qr_toggle.set_size_request(-1, 44)
+        scaled_size_request(qr_toggle, -1, 44)
         pay_type_box.pack_start(qr_toggle, False, False, 0)
 
         content.add(pay_type_box)
@@ -579,8 +580,8 @@ class POSScreen(Gtk.Box):
         else:
             cash_toggle.set_active(True)
 
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        btn_box.set_margin_top(8)
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
+        btn_box.set_margin_top(scaled_px(8))
         cancel_btn = Gtk.Button(label="\u0426\u0443\u0446\u043b\u0430\u0445")
         cancel_btn.connect("clicked", lambda b: dialog.response(Gtk.ResponseType.CANCEL))
         btn_box.pack_start(cancel_btn, True, True, 0)
@@ -679,7 +680,7 @@ class POSScreen(Gtk.Box):
                 pass
 
     def _build_cash_page(self, total):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(8))
 
         cash_entry = Gtk.Entry()
         cash_entry.set_placeholder_text(f"\u0413\u0430\u0440\u0430\u0430\u0441 \u0434\u04af\u043d \u043e\u0440\u0443\u0443\u043b\u0430\u0445 (\u041d\u0438\u0439\u0442: {format_money(total)})")
@@ -693,8 +694,8 @@ class POSScreen(Gtk.Box):
         quick_grid.set_max_children_per_line(3)
         quick_grid.set_min_children_per_line(3)
         quick_grid.set_homogeneous(True)
-        quick_grid.set_column_spacing(6)
-        quick_grid.set_row_spacing(6)
+        quick_grid.set_column_spacing(scaled_px(6))
+        quick_grid.set_row_spacing(scaled_px(6))
         for amt in (1000, 5000, 10000, 20000, 50000, 100000):
             btn = Gtk.Button(label=format_money(amt))
             btn.get_style_context().add_class("cash-quick-btn")
@@ -717,7 +718,7 @@ class POSScreen(Gtk.Box):
         return box
 
     def _build_card_page(self, total, items, dialog):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(12))
 
         card_label = Gtk.Label()
         card_label.set_markup(f'<span size="18000" weight="800" color="#1E40AF">{format_money(total)}</span>')
@@ -726,7 +727,7 @@ class POSScreen(Gtk.Box):
 
         terminal_btn = Gtk.Button(label="\U0001f4b3  \u041a\u0430\u0440\u0442\u0430\u0430\u0440 \u0442\u04e9\u043b\u04af\u04af\u043b\u044d\u0445")
         terminal_btn.get_style_context().add_class("payment-card")
-        terminal_btn.set_size_request(-1, 54)
+        scaled_size_request(terminal_btn, -1, 54)
         box.pack_start(terminal_btn, False, False, 0)
 
         spinner = Gtk.Spinner()
@@ -783,9 +784,9 @@ class POSScreen(Gtk.Box):
         return box
 
     def _build_qr_page(self, total, items):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(8))
 
-        qr_img_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        qr_img_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(4))
         qr_img_box.set_halign(Gtk.Align.CENTER)
 
         qr_label = Gtk.Label(label="QR \u043a\u043e\u0434 \u04af\u04af\u0441\u0433\u044d\u0436 \u0431\u0430\u0439\u043d\u0430...")
@@ -1162,13 +1163,13 @@ class POSScreen(Gtk.Box):
             transient_for=self.get_toplevel(),
             flags=Gtk.DialogFlags.MODAL,
         )
-        dialog.set_default_size(400, 500)
+        dialog.set_default_size(scaled_px(400), scaled_px(500))
         content = dialog.get_content_area()
-        content.set_spacing(8)
-        content.set_margin_top(12)
-        content.set_margin_bottom(12)
-        content.set_margin_start(16)
-        content.set_margin_end(16)
+        content.set_spacing(scaled_px(8))
+        content.set_margin_top(scaled_px(12))
+        content.set_margin_bottom(scaled_px(12))
+        content.set_margin_start(scaled_px(16))
+        content.set_margin_end(scaled_px(16))
 
         receipt_items = "\n".join(
             f'{i.get("product_name","")}\n    {i.get("quantity",1)}\u00d7{format_money(i.get("unit_price",0))}  = {format_money(i.get("subtotal",0))}'
@@ -1199,11 +1200,11 @@ class POSScreen(Gtk.Box):
         receipt_label.get_style_context().add_class("receipt-text")
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_min_content_height(250)
+        scrolled.set_min_content_height(scaled_px(250))
         scrolled.add(receipt_label)
         content.add(scrolled)
 
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
         btn_box.set_homogeneous(True)
 
         print_btn = Gtk.Button(label="\ud83d\udda8  \u0425\u042d\u0412\u041b\u042d\u0425")
