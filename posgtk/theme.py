@@ -86,7 +86,7 @@ window, .main-window-bg {
 .category-scroll {
     min-height: 46px;
 }
-.category-scroll scrollbar { display: none; }
+.category-scroll scrollbar { opacity: 0; min-width: 0; }
 
 /* CATEGORY BUTTONS */
 .category-btn {
@@ -499,7 +499,7 @@ window, .main-window-bg {
 .category-scroll {
     min-height: 46px;
 }
-.category-scroll scrollbar { display: none; }
+.category-scroll scrollbar { opacity: 0; min-width: 0; }
 
 /* CATEGORY BUTTONS */
 .category-btn {
