@@ -11,6 +11,7 @@ gi.require_version('Gdk', '3.0')
 from gi.repository import Gtk, Gdk, Pango
 
 from posgtk.cache import css_class_name
+from posgtk.scaling import scaled_px
 CAT_ICONS = {
     "Хүнс": "🍖", "Ундаа": "🥤", "Амттан": "🍬",
     "Цэвэрлэгээ": "🧹", "Тамхи": "🚬", "Ахуйн": "🏠",
@@ -47,14 +48,15 @@ def make_product_card(product, on_click, cache=None):
     card = Gtk.Button()
     card.set_relief(Gtk.ReliefStyle.NONE)
     card.get_style_context().add_class("product-card")
+    card.set_size_request(scaled_px(130), scaled_px(140))
 
     category = product.get("category", "")
     cat_cls = css_class_name(category)
     card.get_style_context().add_class(cat_cls)
 
-    vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-    vbox.set_valign(Gtk.Align.FILL)
-    vbox.set_halign(Gtk.Align.FILL)
+    vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(4))
+    vbox.set_valign(Gtk.Align.CENTER)
+    vbox.set_halign(Gtk.Align.CENTER)
 
     icon_label = Gtk.Label(label=get_category_icon(category))
     icon_label.get_style_context().add_class("card-icon")
@@ -65,10 +67,8 @@ def make_product_card(product, on_click, cache=None):
     name_label = Gtk.Label(label=name)
     name_label.get_style_context().add_class("product-name")
     name_label.set_line_wrap(True)
-    name_label.set_max_width_chars(12)
-    name_label.set_alignment(0.5, 0.3)
-    name_label.set_hexpand(True)
-    name_label.set_vexpand(True)
+    name_label.set_max_width_chars(14)
+    name_label.set_alignment(0.5, 0.5)
     unit = product.get("unit", "ш")
     barcode_val = product.get("barcode", "")
     name_label.set_tooltip_text(f"{name}\nБаркод: {barcode_val}\nНэгж: {unit}")
@@ -76,7 +76,7 @@ def make_product_card(product, on_click, cache=None):
 
     price_label = Gtk.Label(label=format_money(product.get("price", 0)))
     price_label.get_style_context().add_class("product-price")
-    price_label.set_alignment(0.5, 0.7)
+    price_label.set_alignment(0.5, 0.5)
     vbox.pack_end(price_label, False, False, 0)
 
     stock_qty = product.get("stock_qty", 99999)

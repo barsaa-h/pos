@@ -65,7 +65,7 @@ class POSScreen(Gtk.Box):
             pass
 
     def _build_left_panel(self):
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(8))
         left.set_hexpand(True)
         left.set_vexpand(True)
         left.get_style_context().add_class("pos-left")
@@ -135,6 +135,7 @@ class POSScreen(Gtk.Box):
     def _build_right_panel(self):
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         right.get_style_context().add_class("cart-panel")
+        right.set_size_request(scaled_px(360), -1)
         right.set_vexpand(True)
 
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)

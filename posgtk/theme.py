@@ -351,6 +351,12 @@ flowboxchild {
     padding: 8px 12px;
 }
 .treeview-table tr:nth-child(even) { background: #182235; }
+treeview.view {
+    background-color: #1E293B;
+    border: 1px solid #334155;
+}
+treeview.view cell { padding: 8px 12px; }
+treeview.view:hover { background-color: #182235; }
 
 /* COMBOS / NOTEBOOK / TABS */
 combobox, combobox entry, .form-entry {
@@ -362,6 +368,10 @@ combobox, combobox entry, .form-entry {
     color: #F8FAFC;
 }
 combobox entry:focus, .form-entry:focus { border-color: #34D399; }
+notebook {
+    background-color: #1E293B;
+    border: 1px solid #334155;
+}
 notebook tab {
     padding: 10px 20px;
     font-weight: 600;
@@ -369,7 +379,7 @@ notebook tab {
     background: #0F172A;
     border: 1px solid #334155;
 }
-notebook tab:checked { background: #1E293B; border-bottom-color: transparent; }
+notebook tab:checked { background: #1E293B; border-bottom: 3px solid #059669; }
 notebook tab label { color: #94A3B8; }
 notebook tab:checked label { color: #34D399; }
 spinner { color: #34D399; }
@@ -754,6 +764,12 @@ flowboxchild {
     padding: 8px 12px;
 }
 .treeview-table tr:nth-child(even) { background: #F8FAFC; }
+treeview.view {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E8F0;
+}
+treeview.view cell { padding: 8px 12px; }
+treeview.view:hover { background-color: #F8FAFC; }
 
 /* COMBOS / NOTEBOOK / TABS */
 combobox, combobox entry, .form-entry {
@@ -765,6 +781,10 @@ combobox, combobox entry, .form-entry {
     color: #0F172A;
 }
 combobox entry:focus, .form-entry:focus { border-color: #059669; }
+notebook {
+    background-color: #FFFFFF;
+    border: 1px solid #E2E8F0;
+}
 notebook tab {
     padding: 10px 20px;
     font-weight: 600;
@@ -772,7 +792,7 @@ notebook tab {
     background: #F1F5F9;
     border: 1px solid #E2E8F0;
 }
-notebook tab:checked { background: #FFFFFF; border-bottom-color: transparent; }
+notebook tab:checked { background: #FFFFFF; border-bottom: 3px solid #059669; }
 notebook tab label { color: #64748B; }
 notebook tab:checked label { color: #059669; }
 spinner { color: #059669; }
