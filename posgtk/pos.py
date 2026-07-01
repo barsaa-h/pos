@@ -66,20 +66,15 @@ class POSScreen(Gtk.Box):
 
     def _build_left_panel(self):
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        left.set_size_request(-1, -1)
+        left.set_hexpand(True)
+        left.set_vexpand(True)
         left.get_style_context().add_class("pos-left")
-
-        top_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
-        top_bar.set_margin_top(scaled_px(8))
-        top_bar.set_margin_bottom(scaled_px(4))
-        top_bar.set_margin_start(scaled_px(8))
-        top_bar.set_margin_end(scaled_px(8))
 
         self.barcode_entry = Gtk.Entry()
         self.barcode_entry.set_placeholder_text("Баркод сканнердах эсвэл оруулна уу...")
         self.barcode_entry.connect("key-press-event", self._on_barcode_key_press)
         self.barcode_entry.get_style_context().add_class("barcode-entry")
-        top_bar.pack_start(self.barcode_entry, True, True, 0)
+        left.pack_start(self.barcode_entry, False, False, 0)
 
         search_revealer = Gtk.Revealer()
         self.search_entry = Gtk.SearchEntry()
@@ -89,39 +84,30 @@ class POSScreen(Gtk.Box):
         search_revealer.add(self.search_entry)
         self._search_revealer = search_revealer
 
-        search_bar_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
-        search_bar_row.set_margin_start(scaled_px(8))
-        search_bar_row.set_margin_end(scaled_px(8))
-        search_bar_row.set_margin_top(scaled_px(4))
-        search_bar_row.set_margin_bottom(scaled_px(4))
         self.search_entry_inline = Gtk.Entry()
         self.search_entry_inline.set_placeholder_text("🔍  Бараа хайх...")
         self.search_entry_inline.get_style_context().add_class("search-entry-inline")
         self.search_entry_inline.connect("changed", self._on_search_inline_changed)
         self.search_entry_inline.connect("activate", lambda e: GLib.idle_add(self.barcode_entry.grab_focus))
-        search_bar_row.pack_start(self.search_entry_inline, True, True, 0)
-        left.pack_start(search_bar_row, False, False, 0)
-
-        left.pack_start(top_bar, False, False, 0)
+        left.pack_start(self.search_entry_inline, False, False, 0)
 
         category_scroll = Gtk.ScrolledWindow()
         category_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        category_scroll.set_kinetic_scrolling(True)
         category_scroll.get_style_context().add_class("category-scroll")
-        category_scroll.set_min_content_height(scaled_px(46))
 
-        self.category_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(4))
-        self.category_box.set_margin_start(scaled_px(8))
-        self.category_box.set_margin_end(scaled_px(8))
-        self.category_box.set_margin_top(scaled_px(4))
-        self.category_box.set_margin_bottom(scaled_px(4))
+        self.category_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         self._build_category_buttons()
 
         category_scroll.add(self.category_box)
         left.pack_start(category_scroll, False, False, 0)
 
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        grid_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        grid_scroller = Gtk.ScrolledWindow()
+        grid_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        grid_scroller.set_kinetic_scrolling(True)
+        grid_scroller.set_capture_button_press(True)
+        grid_scroller.set_hexpand(True)
+        grid_scroller.set_vexpand(True)
 
         self.product_grid = Gtk.FlowBox()
         self.product_grid.set_valign(Gtk.Align.START)
@@ -130,39 +116,29 @@ class POSScreen(Gtk.Box):
         self.product_grid.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.product_grid.set_activate_on_single_click(True)
         self.product_grid.set_homogeneous(True)
-        self.product_grid.set_row_spacing(scaled_px(6))
-        self.product_grid.set_column_spacing(scaled_px(6))
-        self.product_grid.set_margin_top(scaled_px(8))
-        self.product_grid.set_margin_bottom(scaled_px(8))
-        self.product_grid.set_margin_start(scaled_px(8))
-        self.product_grid.set_margin_end(scaled_px(8))
+        self.product_grid.set_row_spacing(0)
+        self.product_grid.set_column_spacing(0)
         self.product_grid.connect("child-activated", self._on_grid_child_activated)
         self.product_grid.connect("key-press-event", self._on_grid_key_press)
-        grid_box.pack_start(self.product_grid, True, True, 0)
+        grid_scroller.add(self.product_grid)
 
         self._empty_label = Gtk.Label(label="Бараа олдсонгүй")
-        self._empty_label.set_margin_top(scaled_px(40))
         self._empty_label.set_halign(Gtk.Align.CENTER)
         self._empty_label.set_no_show_all(True)
         self._empty_label.set_visible(False)
-        grid_box.pack_start(self._empty_label, True, True, 0)
+        left.pack_start(self._empty_label, False, False, 0)
 
-        scrolled.add(grid_box)
-        left.pack_start(scrolled, True, True, 0)
+        left.pack_start(grid_scroller, True, True, 0)
 
         self.pack_start(left, True, True, 0)
 
     def _build_right_panel(self):
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        scaled_size_request(right, 340, -1)
         right.get_style_context().add_class("cart-panel")
+        right.set_vexpand(True)
 
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(4))
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         header_box.get_style_context().add_class("cart-header-bar")
-        header_box.set_margin_top(scaled_px(10))
-        header_box.set_margin_bottom(scaled_px(8))
-        header_box.set_margin_start(scaled_px(14))
-        header_box.set_margin_end(scaled_px(14))
 
         cart_title = Gtk.Label(label="🛒 Сагс")
         cart_title.get_style_context().add_class("cart-title")
@@ -173,12 +149,11 @@ class POSScreen(Gtk.Box):
         header_box.pack_start(self.cart_count_label, False, False, 0)
 
         self.tax_mode_label = Gtk.Label(label="")
-        self.tax_mode_label.set_margin_start(scaled_px(8))
         self.tax_mode_label.set_tooltip_text("eBarimt төрөл (F7)")
         self.tax_mode_label.get_style_context().add_class("tax-mode-badge")
         header_box.pack_start(self.tax_mode_label, False, False, 0)
 
-        ebarimt_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(2))
+        ebarimt_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         ebarimt_btn = Gtk.Button(label="\u26a0")
         ebarimt_btn.set_tooltip_text("\u0425\u0443\u043b\u0434\u0430\u0430\u043d\u0434 \u0430\u043c\u0436\u0438\u043b\u0442\u0433\u04af\u0439 eBarimt")
         ebarimt_btn.set_relief(Gtk.ReliefStyle.NONE)
@@ -190,7 +165,7 @@ class POSScreen(Gtk.Box):
         ebarimt_box.pack_start(self.ebarimt_badge, False, False, 0)
         header_box.pack_start(ebarimt_box, False, False, 0)
 
-        held_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(2))
+        held_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         held_btn = Gtk.Button(label="📋")
         held_btn.set_tooltip_text("\u0425\u04af\u043b\u044d\u044d\u043b\u0433\u044d\u0441\u044d\u043d \u0437\u0430\u0445\u0438\u0430\u043b\u0433\u0443\u0443\u0434")
         held_btn.set_relief(Gtk.ReliefStyle.NONE)
@@ -212,13 +187,15 @@ class POSScreen(Gtk.Box):
 
         cart_scroll = Gtk.ScrolledWindow()
         cart_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        cart_scroll.set_kinetic_scrolling(True)
+        cart_scroll.set_vexpand(True)
         cart_scroll.get_style_context().add_class("cart-scroll")
         self.cart_list = Gtk.ListBox()
         self.cart_list.set_selection_mode(Gtk.SelectionMode.NONE)
         cart_scroll.add(self.cart_list)
         right.pack_start(cart_scroll, True, True, 0)
 
-        totals_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(2))
+        totals_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         totals_box.get_style_context().add_class("cart-total-row")
 
         self.total_label = Gtk.Label()
@@ -229,30 +206,23 @@ class POSScreen(Gtk.Box):
 
         right.pack_start(totals_box, False, False, 0)
 
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
-        btn_box.set_margin_top(scaled_px(8))
-        btn_box.set_margin_bottom(scaled_px(10))
-        btn_box.set_margin_start(scaled_px(12))
-        btn_box.set_margin_end(scaled_px(12))
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        btn_box.get_style_context().add_class("checkout-btn-row")
 
         self.pay_btn = Gtk.Button(label="💰  ТӨЛБӨР ТӨЛӨХ")
-        scaled_size_request(self.pay_btn, -1, 54)
         self.pay_btn.get_style_context().add_class("checkout-pay-btn")
         self.pay_btn.connect("clicked", self._on_pay_clicked)
         self.pay_btn.set_sensitive(False)
         btn_box.pack_start(self.pay_btn, True, True, 0)
 
-        hold_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(2))
         hold_btn = Gtk.Button(label="⏸")
-        scaled_size_request(hold_btn, 54, 54)
         hold_btn.set_tooltip_text("Түр хадгалах (F9)")
         hold_btn.get_style_context().add_class("hold-btn")
         hold_btn.connect("clicked", lambda b: self._on_hold_order_clicked())
-        hold_box.pack_start(hold_btn, False, False, 0)
+        btn_box.pack_start(hold_btn, False, False, 0)
         self.held_count_label = Gtk.Label(label="")
         self.held_count_label.get_style_context().add_class("badge")
-        hold_box.pack_start(self.held_count_label, False, False, 0)
-        btn_box.pack_end(hold_box, False, False, 0)
+        btn_box.pack_start(self.held_count_label, False, False, 0)
 
         right.pack_start(btn_box, False, False, 0)
 
