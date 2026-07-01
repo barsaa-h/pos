@@ -96,6 +96,10 @@ def make_product_card(product, on_click, cache=None):
     name_label.set_lines(2)
     name_label.set_ellipsize(Pango.EllipsizeMode.END)
     name_label.set_justify(Gtk.Justification.CENTER)
+    name_label.set_halign(Gtk.Align.CENTER)
+    name_label.set_valign(Gtk.Align.CENTER)
+    name_label.set_xalign(0.5)
+    name_label.set_yalign(0.5)
     name_label.get_style_context().add_class("card-name")
     name_label.set_tooltip_text(f"{name}\nБаркод: {barcode_val}\nНэгж: {unit}")
 
@@ -103,16 +107,23 @@ def make_product_card(product, on_click, cache=None):
 
     price_label = Gtk.Label(label=format_money(price))
     price_label.get_style_context().add_class("card-price")
+    price_label.set_halign(Gtk.Align.CENTER)
     price_label.set_valign(Gtk.Align.END)
+    price_label.set_xalign(0.5)
+    price_label.set_yalign(1.0)
     vbox.pack_start(price_label, False, False, 2)
 
     if stock_qty == 0:
         btn.get_style_context().add_class("out-of-stock")
         stock_label = Gtk.Label(label="⛔ Дууссан")
+        stock_label.set_halign(Gtk.Align.CENTER)
+        stock_label.set_xalign(0.5)
         vbox.pack_start(stock_label, False, False, 0)
     elif stock_qty is not None and stock_qty < 10:
         stock_label = Gtk.Label(label=f"✕ {stock_qty}")
         stock_label.get_style_context().add_class("low-stock-badge")
+        stock_label.set_halign(Gtk.Align.CENTER)
+        stock_label.set_xalign(0.5)
         vbox.pack_start(stock_label, False, False, 0)
 
     if not barcode_val:
@@ -168,7 +179,7 @@ def make_cart_item_row(item, on_remove, on_qty_change):
     icon_label.set_halign(Gtk.Align.CENTER)
     hbox.pack_start(icon_label, False, False, 0)
 
-    qty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+    qty_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(2))
     qty_box.set_valign(Gtk.Align.CENTER)
 
     dec_btn = Gtk.Button(label="-")
@@ -179,6 +190,10 @@ def make_cart_item_row(item, on_remove, on_qty_change):
     qty_label = Gtk.Label(label=str(item.quantity))
     qty_label.get_style_context().add_class("item-qty-label")
     qty_label.set_halign(Gtk.Align.CENTER)
+    qty_label.set_valign(Gtk.Align.CENTER)
+    qty_label.set_xalign(0.5)
+    qty_label.set_yalign(0.5)
+    scaled_size_request(qty_label, 28, -1)
     qty_box.pack_start(qty_label, False, False, 0)
 
     inc_btn = Gtk.Button(label="+")
@@ -199,6 +214,7 @@ def make_cart_item_row(item, on_remove, on_qty_change):
     subtotal_label = Gtk.Label(label=format_money(item.subtotal))
     subtotal_label.get_style_context().add_class("item-subtotal")
     subtotal_label.set_halign(Gtk.Align.END)
+    subtotal_label.set_xalign(1.0)
     hbox.pack_start(subtotal_label, False, False, 0)
 
     remove_btn = Gtk.Button(label="✕")

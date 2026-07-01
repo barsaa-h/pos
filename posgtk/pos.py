@@ -104,13 +104,20 @@ class POSScreen(Gtk.Box):
 
         left.pack_start(top_bar, False, False, 0)
 
+        category_scroll = Gtk.ScrolledWindow()
+        category_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        category_scroll.get_style_context().add_class("category-scroll")
+        category_scroll.set_min_content_height(scaled_px(46))
+
         self.category_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(4))
         self.category_box.set_margin_start(scaled_px(8))
         self.category_box.set_margin_end(scaled_px(8))
         self.category_box.set_margin_top(scaled_px(4))
         self.category_box.set_margin_bottom(scaled_px(4))
         self._build_category_buttons()
-        left.pack_start(self.category_box, False, False, 0)
+
+        category_scroll.add(self.category_box)
+        left.pack_start(category_scroll, False, False, 0)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -168,6 +175,7 @@ class POSScreen(Gtk.Box):
         self.tax_mode_label = Gtk.Label(label="")
         self.tax_mode_label.set_margin_start(scaled_px(8))
         self.tax_mode_label.set_tooltip_text("eBarimt төрөл (F7)")
+        self.tax_mode_label.get_style_context().add_class("tax-mode-badge")
         header_box.pack_start(self.tax_mode_label, False, False, 0)
 
         ebarimt_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(2))
@@ -518,23 +526,23 @@ class POSScreen(Gtk.Box):
         content.add(total_label)
 
         pay_type_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
-        pay_type_box.set_halign(Gtk.Align.CENTER)
+        pay_type_box.set_hexpand(True)
         pay_type_box.set_margin_bottom(scaled_px(8))
 
         cash_toggle = Gtk.ToggleButton(label="\U0001f4b5  \u0411\u044d\u043b\u044d\u043d (F2)")
         cash_toggle.get_style_context().add_class("payment-cash")
         scaled_size_request(cash_toggle, -1, 44)
-        pay_type_box.pack_start(cash_toggle, False, False, 0)
+        pay_type_box.pack_start(cash_toggle, True, True, 0)
 
         card_toggle = Gtk.ToggleButton(label="\U0001f4b3  \u041a\u0430\u0440\u0442 (F4)")
         card_toggle.get_style_context().add_class("payment-card")
         scaled_size_request(card_toggle, -1, 44)
-        pay_type_box.pack_start(card_toggle, False, False, 0)
+        pay_type_box.pack_start(card_toggle, True, True, 0)
 
         qr_toggle = Gtk.ToggleButton(label="\U0001f4f1  QR (F5)")
         qr_toggle.get_style_context().add_class("payment-qr")
         scaled_size_request(qr_toggle, -1, 44)
-        pay_type_box.pack_start(qr_toggle, False, False, 0)
+        pay_type_box.pack_start(qr_toggle, True, True, 0)
 
         content.add(pay_type_box)
 
@@ -1684,7 +1692,11 @@ class POSScreen(Gtk.Box):
     def _update_tax_indicator_ui(self):
         if hasattr(self, 'tax_mode_label'):
             mapping = {"individual": "👤 Иргэн", "corporate": "🏢 Байгууллага", "none": "❌ Талон"}
-            self.tax_mode_label.set_markup(f"Төрөл: <b>{mapping.get(self.ebarimt_type)}</b>")
+            self.tax_mode_label.set_markup(f"<b>{mapping.get(self.ebarimt_type)}</b>")
+            ctx = self.tax_mode_label.get_style_context()
+            for cls in ["individual", "corporate", "none"]:
+                ctx.remove_class(cls)
+            ctx.add_class(self.ebarimt_type)
 
     def _on_hold_order_clicked(self, button=None):
         if not self.cart:
