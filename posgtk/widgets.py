@@ -196,3 +196,34 @@ def make_section_header(title):
     label.set_margin_bottom(8)
     label.set_margin_start(8)
     return label
+
+
+class ScaledCssButton(Gtk.Button):
+    """Button with CSS class styling. No micro-scaling — uses GTK CSS sizing."""
+    def __init__(self, label="", css_class="", tooltip="", size_request=None):
+        super().__init__(label=label)
+        if css_class:
+            self.get_style_context().add_class(css_class)
+        if tooltip:
+            self.set_tooltip_text(tooltip)
+        if size_request:
+            self.set_size_request(*size_request)
+
+
+class POSHeader(Gtk.Box):
+    """Header bar with title, optional clock, and action buttons."""
+    def __init__(self, title="Моност — POS Систем", clock_label=None):
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        self.get_style_context().add_class("pos-header")
+
+        self._title = Gtk.Label(label=title)
+        self._title.get_style_context().add_class("title")
+        self._title.set_hexpand(True)
+        self._title.set_halign(Gtk.Align.CENTER)
+        self.pack_start(self._title, True, True, 0)
+
+        if clock_label:
+            self._clock = clock_label
+            self._clock.set_margin_end(scaled_px(12))
+            self._clock.get_style_context().add_class("clock-label")
+            self.pack_end(self._clock, False, False, 0)

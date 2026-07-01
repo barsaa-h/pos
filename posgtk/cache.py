@@ -28,6 +28,7 @@ class ProductCache:
         self._by_category = {}
         self._category_colors = {}
         self._loaded = False
+        self._search_index = {}
 
     def load(self):
         """Load all active products and category colors from DB."""
@@ -36,13 +37,14 @@ class ProductCache:
             products = db.get_all_products(active_only=True)
         except Exception as e:
             logger.error(f"Product cache load failed: {e}")
-            return  # _loaded stays False — next access retries instead of permanently serving an empty cache
+            return
 
         self._by_barcode.clear()
         self._by_id.clear()
         self._all.clear()
         self._by_category.clear()
         self._category_colors.clear()
+        self._search_index.clear()
         cats = set()
 
         for p in products:
@@ -56,6 +58,13 @@ class ProductCache:
             if cat not in self._by_category:
                 self._by_category[cat] = []
             self._by_category[cat].append(p)
+
+            name = p.get("name", "").lower()
+            for i in range(1, min(len(name) + 1, 51)):
+                prefix = name[:i]
+                if prefix not in self._search_index:
+                    self._search_index[prefix] = []
+                self._search_index[prefix].append(p)
 
         self._categories = sorted(cats)
 
@@ -74,7 +83,8 @@ class ProductCache:
         logger.info(
             f"Product cache loaded: {len(self._all)} products, "
             f"{len(self._categories)} categories, "
-            f"{len(self._category_colors)} colors"
+            f"{len(self._category_colors)} colors, "
+            f"{len(self._search_index)} search prefixes"
         )
 
     def get_by_barcode(self, barcode):
@@ -103,10 +113,14 @@ class ProductCache:
         self._ensure_loaded()
         if not query:
             return self._all[:limit]
-        q = query.lower()
+        q = query.lower().strip()
+
+        if q in self._search_index:
+            return self._search_index[q][:limit]
+
         results = []
         for p in self._all:
-            if q in p.get("name", "").lower():
+            if q in p.get("name", "").lower() or q in p.get("barcode", "").lower():
                 results.append(p)
                 if len(results) >= limit:
                     break
@@ -131,6 +145,7 @@ class ProductCache:
 
     def invalidate(self):
         self._loaded = False
+        self._search_index.clear()
         logger.info("Product cache invalidated")
 
     def _ensure_loaded(self):
