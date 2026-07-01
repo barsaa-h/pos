@@ -83,11 +83,11 @@ class POSApplication(Gtk.Application):
             application=self, title="Моност — POS Систем",
             window_position=Gtk.WindowPosition.CENTER,
         )
-        self.window.set_default_size(1024, 640)
         self.window.connect("key-press-event", self._on_key_press)
         self.window.connect("destroy", self._on_quit)
 
         self._init_theme()
+        self.window.set_default_size(scaled_px(1024), scaled_px(640))
 
         header = self._build_header()
         self.window.set_titlebar(header)

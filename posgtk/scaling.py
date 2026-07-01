@@ -42,16 +42,17 @@ def init_scaling(display=None):
         return _SCALE
 
     geo = monitor.get_geometry()
-    scale_factor = monitor.get_scale_factor() if hasattr(monitor, 'get_scale_factor') else 1
 
-    phys_width = geo.width * scale_factor
-    phys_height = geo.height * scale_factor
+    # GTK uses logical units, so we must calculate the scale factor in logical coordinates.
+    # Otherwise, on HiDPI screens (scale_factor > 1), the layout is scaled twice, causing it to overflow the screen.
+    logical_width = geo.width
+    logical_height = geo.height
 
     reference_height = 768
     reference_width = 1366
 
-    scale_h = phys_height / reference_height
-    scale_w = phys_width / reference_width
+    scale_h = logical_height / reference_height
+    scale_w = logical_width / reference_width
 
     _SCALE = max(0.6, min(2.0, min(scale_h, scale_w)))
     _SCALE = round(_SCALE * 10) / 10
