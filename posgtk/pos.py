@@ -16,7 +16,7 @@ from gi.repository import Gtk, Gdk, GLib, GObject, Pango
 
 from posgtk.widgets import (
     CartItem, format_money, make_product_card, make_cart_item_row,
-    make_category_button,
+    make_category_button, get_category_icon,
 )
 from posgtk.scaling import scaled_px, scaled_size_request
 
@@ -242,12 +242,8 @@ class POSScreen(Gtk.Box):
 
         if self.cache:
             cats = self.cache.categories()
-            CAT_ICONS = {
-                "Хүнс": "🍖", "Ундаа": "🥤", "Амттан": "🍬", "Цэвэрлэгээ": "🧹",
-                "Тамхи": "🚬", "Ахуйн": "🏠", "Бусад": "📦",
-            }
             for cat in cats:
-                icon = CAT_ICONS.get(cat, "📦")
+                icon = get_category_icon(cat)
                 btn = Gtk.ToggleButton(label=f"{icon} {cat}")
                 btn.set_active(cat == self._active_category)
                 btn.connect("toggled", self._on_category_toggled, cat)
@@ -972,6 +968,7 @@ class POSScreen(Gtk.Box):
                 item,
                 on_remove=self._on_remove_item,
                 on_qty_change=self._on_qty_changed,
+                cache=self.cache,
             )
             row.show_all()
             self.cart_list.add(row)

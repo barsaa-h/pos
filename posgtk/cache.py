@@ -132,14 +132,16 @@ class ProductCache:
         return self._category_colors.get(category, "#6B7280")
 
     def generate_category_css(self):
-        """Generate CSS rules for per-category card accent colors."""
+        """Generate CSS rules for per-category card accent bar colors."""
         self._ensure_loaded()
         lines = []
         for name, color in self._category_colors.items():
             cls = css_class_name(name)
-            lines.append(f".{cls} {{ border-top: 4px solid {color}; }}")
             lines.append(
-                f".{cls}:hover {{ border-color: {color}; }}"
+                f".product-card.{cls} {{ border-color: {color}; }}"
+            )
+            lines.append(
+                f".product-card.{cls}:hover {{ border-top-color: {color}; }}"
             )
         return "\n".join(lines)
 

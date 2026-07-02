@@ -34,29 +34,15 @@ _LOADING_TEXTS = {
 
 
 def _make_placeholder(name):
-    b = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
-                margin_top=80, margin_bottom=80, margin_start=40, margin_end=40)
-    b.set_name(name)
-    label = Gtk.Label(
-        label=f"{name}\n\nДарвал ачааллана",
-        justify=Gtk.Justification.CENTER
-    )
-    label.set_name("placeholder-label")
-    b.pack_start(label, True, True, 0)
-    btn = Gtk.Button(label="Ачаалах")
-    btn.set_halign(Gtk.Align.CENTER)
-    btn.set_valign(Gtk.Align.CENTER)
-    btn.set_size_request(scaled_px(120), scaled_px(40))
-    btn.connect("clicked", lambda w: None)
-    b.pack_start(btn, False, False, 0)
-    return b
+    from posgtk.widgets import make_loading_placeholder
+    return make_loading_placeholder(name)
 
 
 class POSApplication(Gtk.Application):
     def __init__(self):
         super().__init__(
             application_id="mn.monost.pos.gtk",
-            flags=Gio.ApplicationFlags.NON_UNIQUE if hasattr(Gio.ApplicationFlags, 'NON_UNIQUE') else Gio.ApplicationFlags.FLAGS_NONE
+            flags=Gio.ApplicationFlags.FLAGS_NONE
         )
         self.window = None
         self.stack = None
@@ -131,10 +117,6 @@ class POSApplication(Gtk.Application):
     def _init_db(self):
         import database as db
         db.init_db()
-        with db.get_db() as conn:
-            result = conn.execute("PRAGMA integrity_check").fetchone()
-            if result and result[0] != "ok":
-                logger.error(f"DB integrity check failed: {result[0]}")
 
     def _init_cache(self):
         from posgtk.cache import ProductCache
@@ -149,21 +131,23 @@ class POSApplication(Gtk.Application):
         from posgtk.theme import Theme
         self.theme = Theme()
 
-        # Initialize global scaling (one-time at startup)
         display = Gdk.Display.get_default()
         init_scaling(display)
         css_scale = get_scale()
 
         try:
             import database as db
-            mode = db.get_setting("theme", "light")
-            user_scale = db.get_setting("display_scale", "")
+            settings = db.get_all_settings()
+            mode = settings.get("theme", "light")
+            user_scale = settings.get("display_scale", "")
             if user_scale and user_scale != "1.0":
                 css_scale = max(0.5, float(user_scale))
-            low_perf = db.get_setting("low_perf_mode", "false") == "true"
-            self.theme.apply(mode, scale=css_scale, low_perf=low_perf)
+            low_perf = settings.get("low_perf_mode", "false") == "true"
         except Exception:
-            self.theme.apply("light", scale=css_scale)
+            mode = "light"
+            low_perf = False
+
+        self.theme.apply(mode, scale=css_scale, low_perf=low_perf)
         self._display_scale = css_scale
         if self.cache:
             cat_css = self.cache.generate_category_css()
@@ -192,8 +176,11 @@ class POSApplication(Gtk.Application):
         header.set_show_close_button(True)
         header.get_style_context().add_class("pos-header")
 
-        title_label = Gtk.Label(label="Моност — POS Систем")
-        title_label.get_style_context().add_class("title")
+        title_label = Gtk.Label()
+        title_label.set_markup(
+            '<span weight="800" size="18000">Моност</span>'
+            ' <span weight="600" size="14000" foreground="#667085">— POS Систем</span>'
+        )
         header.set_custom_title(title_label)
 
         self.clock_label = Gtk.Label(label="--:--:--")
@@ -228,11 +215,11 @@ class POSApplication(Gtk.Application):
         listbox.get_style_context().add_class("sidebar-list")
 
         logo = Gtk.ListBoxRow()
-        logo_box = Gtk.Box(spacing=scaled_px(8), 
-                          margin_start=scaled_px(14), margin_end=scaled_px(14), 
+        logo_box = Gtk.Box(spacing=scaled_px(8),
+                          margin_start=scaled_px(14), margin_end=scaled_px(14),
                           margin_top=scaled_px(16), margin_bottom=scaled_px(12))
-        logo_label = Gtk.Label(label="Моност")
-        logo_label.get_style_context().add_class("title")
+        logo_label = Gtk.Label()
+        logo_label.set_markup('<span weight="900" size="18000" foreground="#34D399">Моност</span>')
         logo_box.pack_start(logo_label, False, False, 0)
         logo.add(logo_box)
         logo.set_sensitive(False)
@@ -252,8 +239,8 @@ class POSApplication(Gtk.Application):
         for icon, label, name in items:
             row = Gtk.ListBoxRow()
             row.set_name(name)
-            h = Gtk.Box(spacing=scaled_px(8), 
-                       margin_start=scaled_px(12), margin_end=scaled_px(12), 
+            h = Gtk.Box(spacing=scaled_px(8),
+                       margin_start=scaled_px(12), margin_end=scaled_px(12),
                        margin_top=scaled_px(6), margin_bottom=scaled_px(6))
             h.pack_start(Gtk.Label(label=icon, xalign=0), False, False, 0)
             h.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)

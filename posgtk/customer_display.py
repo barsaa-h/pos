@@ -12,7 +12,7 @@ from gi.repository import Gtk, Gdk, GLib, Pango
 
 from posgtk.widgets import format_money
 from posgtk.scaling import scaled_px, get_scale
-from posgtk.theme import _scale_css
+from posgtk.theme import scale_css
 
 CATEGORY_ICONS = {
     "Хүнс": "🍖", "Ундаа": "🥤", "Амттан": "🍬", "Сүүн бүтээгдэхүүн": "🥛",
@@ -63,7 +63,7 @@ class CustomerDisplayWindow(Gtk.Window):
         self._item_widgets = {}
 
         provider = Gtk.CssProvider()
-        customer_css = _scale_css(CUSTOMER_CSS.decode(), get_scale()).encode()
+        customer_css = scale_css(CUSTOMER_CSS.decode(), get_scale()).encode()
         provider.load_from_data(customer_css)
         Gtk.StyleContext.add_provider_for_screen(
             Gdk.Screen.get_default(), provider,
