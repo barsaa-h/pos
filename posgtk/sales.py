@@ -82,12 +82,28 @@ class SalesScreen(Gtk.Box):
         scrolled.add(self.tree)
         self.pack_start(scrolled, True, True, 0)
 
+        page_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        page_box.set_halign(Gtk.Align.CENTER)
+        page_box.set_margin_start(8)
+        page_box.set_margin_end(8)
+        page_box.set_margin_top(4)
+        page_box.set_margin_bottom(4)
+
+        self.prev_btn = Gtk.Button(label="‹ Өмнөх")
+        self.prev_btn.connect("clicked", lambda b: self._change_page(-1))
+        self.prev_btn.set_sensitive(False)
+        page_box.pack_start(self.prev_btn, False, False, 0)
+
         self.page_label = Gtk.Label(label="Хуудас 1")
-        self.page_label.set_margin_start(4)
-        self.page_label.set_margin_end(4)
-        self.page_label.set_margin_top(4)
-        self.page_label.set_margin_bottom(4)
-        self.pack_start(self.page_label, False, False, 0)
+        self.page_label.set_margin_start(12)
+        self.page_label.set_margin_end(12)
+        page_box.pack_start(self.page_label, False, False, 0)
+
+        self.next_btn = Gtk.Button(label="Дараах ›")
+        self.next_btn.connect("clicked", lambda b: self._change_page(1))
+        page_box.pack_start(self.next_btn, False, False, 0)
+
+        self.pack_start(page_box, False, False, 0)
 
         self.show_all()
         GLib.idle_add(self._load_data)
@@ -123,6 +139,8 @@ class SalesScreen(Gtk.Box):
                     s.get("id", 0),
                 ])
             self.page_label.set_label(f"Хуудас {page}/{total_pages}  (Нийт: {total_count})")
+            self.prev_btn.set_sensitive(page > 1)
+            self.next_btn.set_sensitive(page < total_pages)
 
         def on_fetch_error(error_msg):
             logger.error(f"Background sales load failed: {error_msg}")
@@ -134,6 +152,10 @@ class SalesScreen(Gtk.Box):
                 on_fetch_complete(fetch_background())
             except Exception as e:
                 on_fetch_error(str(e))
+
+    def _change_page(self, delta):
+        self._page = max(1, self._page + delta)
+        self._load_data()
 
     def _on_row_activated(self, tree, path, col):
         it = self.store.get_iter(path)
@@ -222,6 +244,12 @@ class SalesScreen(Gtk.Box):
         print_btn.connect("clicked", lambda b: self._do_print(sale))
         btn_box.pack_start(print_btn, False, False, 0)
 
+        if sale.get("payment_type") != "return":
+            return_btn = Gtk.Button(label="↩ Буцаалт")
+            return_btn.get_style_context().add_class("destructive-action")
+            return_btn.connect("clicked", lambda b: self._do_return(sale_id, dialog))
+            btn_box.pack_start(return_btn, False, False, 0)
+
         btn_box.pack_end(Gtk.Button(label="✕ Хаах"), False, False, 0)
 
         content.add(btn_box)
@@ -256,6 +284,56 @@ class SalesScreen(Gtk.Box):
                 async_print_job()
             except Exception as e:
                 logger.error(f"Synchronous fallback print failed: {e}")
+
+    def _do_return(self, sale_id, detail_dialog):
+        confirm = Gtk.MessageDialog(
+            transient_for=self.get_toplevel(),
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text=f"Борлуулалт #{sale_id}-г буцаах уу?",
+        )
+        resp = confirm.run()
+        confirm.destroy()
+        if resp != Gtk.ResponseType.YES:
+            return
+
+        def _write():
+            import database as db
+            return db.process_return(sale_id)
+
+        def _on_done(result):
+            if result is None:
+                self._show_return_error("Буцаалт амжилтгүй")
+                return
+            detail_dialog.destroy()
+            if self.app and hasattr(self.app, 'pos_screen'):
+                self.app.pos_screen._show_toast(f"#{sale_id} буцаалт амжилттай", "success")
+                try:
+                    from printer import print_receipt
+                    from config import get_store_info
+                    print_receipt(result, get_store_info())
+                except Exception:
+                    pass
+
+        def _on_error(err):
+            self._show_return_error(f"Алдаа: {err}")
+
+        if self.app and self.app.workqueue:
+            self.app.workqueue.write(_write, on_done=_on_done, on_error=_on_error)
+        else:
+            _on_done(_write())
+
+    def _show_return_error(self, msg):
+        err = Gtk.MessageDialog(
+            transient_for=self.get_toplevel(),
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text=msg,
+        )
+        err.run()
+        err.destroy()
 
     def _apply_filter(self):
         self._date_from = self.date_from_entry.get_text().strip()

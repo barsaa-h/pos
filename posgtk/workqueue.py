@@ -22,7 +22,7 @@ logger = logging.getLogger("pos.gtk.workqueue")
 
 
 class WorkQueue:
-    def __init__(self, max_workers=2):
+    def __init__(self, max_workers=4):
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="pos-worker")
         self._futures = []
         self._futures_lock = threading.Lock()
@@ -81,5 +81,8 @@ class WorkQueue:
                 pass
 
     def shutdown(self):
-        self.flush()
-        self._executor.shutdown(wait=True)
+        self._executor.shutdown(wait=False)
+        with self._futures_lock:
+            for f in self._futures:
+                f.cancel()
+            self._futures.clear()

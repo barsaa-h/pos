@@ -405,6 +405,69 @@ flowboxchild { padding: 5px; }
 .pay-select-qr label { color: #FFFFFF; }
 .pay-select-qr:hover { background: #7C3AED; }
 
+.pay-select-split {
+    background: #F59E0B;
+    color: #FFFFFF;
+    border-radius: 10px;
+    font-weight: 800;
+    font-size: 16px;
+    padding: 14px 18px;
+    border: none;
+}
+.pay-select-split label { color: #FFFFFF; }
+.pay-select-split:hover { background: #D97706; }
+
+.payment-cash {
+    background: #22C55E;
+    color: #FFFFFF;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 10px 14px;
+    border: none;
+}
+.payment-cash label { color: #FFFFFF; }
+.payment-cash:checked { background: #15803D; }
+
+.payment-card {
+    background: #3B82F6;
+    color: #FFFFFF;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 10px 14px;
+    border: none;
+}
+.payment-card label { color: #FFFFFF; }
+.payment-card:checked { background: #1D4ED8; }
+
+.payment-qr {
+    background: #8B5CF6;
+    color: #FFFFFF;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 10px 14px;
+    border: none;
+}
+.payment-qr label { color: #FFFFFF; }
+.payment-qr:checked { background: #6D28D9; }
+
+.payment-split {
+    background: #F59E0B;
+    color: #FFFFFF;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 10px 14px;
+    border: none;
+}
+.payment-split label { color: #FFFFFF; }
+.payment-split:checked { background: #B45309; }
+
+.split-label { font-weight: 600; font-size: 13px; color: #667085; padding: 4px 0; }
+.split-total-label { font-weight: 800; font-size: 14px; color: #047857; }
+
 /* === SUGGESTED / DESTRUCTIVE BUTTONS === */
 .suggested-action, button.suggested-action {
     background: #0EA34A;

@@ -28,6 +28,7 @@ _LOADING_TEXTS = {
     "products": "Бараа",
     "categories": "Ангилал",
     "suppliers": "Ханган нийлүүлэгч",
+    "stock": "Агуулахын тохируулга",
     "reports": "Тайлан",
     "settings": "Тохиргоо",
 }
@@ -232,6 +233,7 @@ class POSApplication(Gtk.Application):
             ("📦", "Бараа", "products"),
             ("🏷", "Ангилал", "categories"),
             ("🚛", "Ханган нийлүүлэгч", "suppliers"),
+            ("📊", "Агуулах тохируулга", "stock"),
             ("📈", "Тайлан", "reports"),
             ("⚙️", "Тохиргоо", "settings"),
         ]
@@ -280,6 +282,9 @@ class POSApplication(Gtk.Application):
             elif name == "reports":
                 from posgtk.reports import ReportsScreen
                 scr = ReportsScreen(app=self)
+            elif name == "stock":
+                from posgtk.stock import StockScreen
+                scr = StockScreen(app=self)
             elif name == "settings":
                 from posgtk.settings import SettingsScreen
                 scr = SettingsScreen(app=self)
@@ -328,8 +333,16 @@ class POSApplication(Gtk.Application):
             self.pos_screen._show_help()
             return True
 
+        if keyname == "F2":
+            self.pos_screen.handle_payment_trigger("Бэлэн")
+            return True
+
         if keyname == "F3":
             self.pos_screen._hold_order()
+            return True
+
+        if keyname == "F4":
+            self.pos_screen.handle_payment_trigger("Карт")
             return True
 
         if keyname == "F5":
@@ -338,6 +351,30 @@ class POSApplication(Gtk.Application):
 
         if keyname == "F6":
             self.pos_screen._show_anonymous_price_prompt()
+            return True
+
+        if keyname == "F7":
+            self.pos_screen._toggle_ebarimt_type()
+            return True
+
+        if keyname == "F9":
+            self.pos_screen._on_hold_order_clicked()
+            return True
+
+        if keyname == "F10":
+            self.pos_screen._on_resume_order_clicked()
+            return True
+
+        if keyname == "Escape":
+            focus = widget.get_focus()
+            if isinstance(focus, (Gtk.Entry,)):
+                widget.set_focus(None)
+                self.pos_screen.barcode_entry.grab_focus()
+                return True
+            if self.pos_screen.cart:
+                self.pos_screen._clear_cart()
+                self.pos_screen._show_toast("🗑️ Сагсыг цэвэрлэв.", "info")
+            self.pos_screen.barcode_entry.grab_focus()
             return True
 
         if keyname in ("Up", "Down", "Left", "Right", "KP_Up", "KP_Down", "KP_Left", "KP_Right"):

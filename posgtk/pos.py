@@ -44,6 +44,8 @@ class POSScreen(Gtk.Box):
         self._selected_index = -1
         self._discounts_enabled = False
         self.ebarimt_type = "individual"
+        self._search_timeout_id = 0
+        self._badges_timer_id = 0
 
         self._load_settings()
         self._build_left_panel()
@@ -54,7 +56,7 @@ class POSScreen(Gtk.Box):
         self.show_all()
         self._on_category_selected("")
         GLib.idle_add(self.barcode_entry.grab_focus)
-        GLib.idle_add(self.bind_keyboard_accelerators)
+        self._badges_timer_id = GLib.timeout_add(5000, self._update_badges_periodic)
 
     def _load_settings(self):
         try:
@@ -384,19 +386,20 @@ class POSScreen(Gtk.Box):
         GLib.idle_add(self.barcode_entry.grab_focus)
 
     def _on_search_inline_changed(self, entry):
+        if self._search_timeout_id:
+            GLib.source_remove(self._search_timeout_id)
+            self._search_timeout_id = 0
+
         query = entry.get_text().lower().strip()
-        if self._search_query != query:
-            self._search_query = query
-            self._on_category_selected(self._active_category)
-        if self._active_category:
-            for child in self.category_box.get_children():
-                if hasattr(child, 'category') and child.category:
-                    if child.get_active():
-                        child.set_active(False)
-                        all_children = self.category_box.get_children()
-                        if all_children:
-                            all_children[0].set_active(True)
-                        break
+        if self._search_query == query:
+            return
+
+        self._search_query = query
+        self._search_timeout_id = GLib.timeout_add(150, self._do_filter_product_grid)
+
+    def _do_filter_product_grid(self):
+        self._search_timeout_id = 0
+        self._on_category_selected(self._active_category)
 
     def _on_pay_clicked(self, btn):
         if not self.cart:
@@ -459,6 +462,12 @@ class POSScreen(Gtk.Box):
         qr_btn.connect("clicked", lambda b: [dialog.response(Gtk.ResponseType.OK), self._show_checkout("qr")])
         btn_grid.pack_start(qr_btn, False, False, 0)
 
+        split_btn = Gtk.Button(label="🔀  Холимог (Бэлэн+Карт)")
+        scaled_size_request(split_btn, -1, 68)
+        split_btn.get_style_context().add_class("pay-select-split")
+        split_btn.connect("clicked", lambda b: [dialog.response(Gtk.ResponseType.OK), self._show_checkout("split")])
+        btn_grid.pack_start(split_btn, False, False, 0)
+
         content.pack_start(btn_grid, False, False, 0)
 
         dialog.show_all()
@@ -511,6 +520,11 @@ class POSScreen(Gtk.Box):
         scaled_size_request(qr_toggle, -1, 44)
         pay_type_box.pack_start(qr_toggle, True, True, 0)
 
+        split_toggle = Gtk.ToggleButton(label="\U0001f500  \u0425\u043e\u043b\u0438\u043c\u043e\u0433")
+        split_toggle.get_style_context().add_class("payment-split")
+        scaled_size_request(split_toggle, -1, 44)
+        pay_type_box.pack_start(split_toggle, True, True, 0)
+
         content.add(pay_type_box)
 
         stack = Gtk.Stack()
@@ -526,6 +540,9 @@ class POSScreen(Gtk.Box):
         qr_page = self._build_qr_page(total, items_data)
         stack.add_titled(qr_page, "qr", "QR")
 
+        split_page = self._build_split_page(total, dialog)
+        stack.add_titled(split_page, "split", "\u0425\u043e\u043b\u0438\u043c\u043e\u0433")
+
         content.pack_start(stack, True, True, 0)
 
         tin_expander = Gtk.Expander(label="\U0001f4c4  \u0411\u0430\u0439\u0433\u0443\u0443\u043b\u043b\u0430\u0433\u044b\u043d \u0440\u0435\u0433\u0438\u0441\u0442\u0440")
@@ -535,23 +552,26 @@ class POSScreen(Gtk.Box):
         tin_expander.add(tin_entry)
         content.pack_start(tin_expander, False, False, 0)
 
-        def on_toggle(active_btn, other1, other2, page_name):
-            if active_btn.get_active():
-                other1.set_active(False)
-                other2.set_active(False)
-                stack.set_visible_child_name(page_name)
-            else:
-                if not other1.get_active() and not other2.get_active():
-                    active_btn.set_active(True)
+        all_toggle_page_names = {
+            cash_toggle: "cash", card_toggle: "card", qr_toggle: "qr", split_toggle: "split"
+        }
+        def on_toggle(active_btn, page_name):
+            if not active_btn.get_active():
+                return
+            for toggle in all_toggle_page_names:
+                if toggle is not active_btn:
+                    toggle.set_active(False)
+            stack.set_visible_child_name(page_name)
 
-        cash_toggle.connect("toggled", on_toggle, card_toggle, qr_toggle, "cash")
-        card_toggle.connect("toggled", on_toggle, cash_toggle, qr_toggle, "card")
-        qr_toggle.connect("toggled", on_toggle, cash_toggle, card_toggle, "qr")
+        for toggle, page in all_toggle_page_names.items():
+            toggle.connect("toggled", on_toggle, page)
 
         if default_type == "card":
             card_toggle.set_active(True)
         elif default_type == "qr":
             qr_toggle.set_active(True)
+        elif default_type == "split":
+            split_toggle.set_active(True)
         else:
             cash_toggle.set_active(True)
 
@@ -596,6 +616,33 @@ class POSScreen(Gtk.Box):
                     return
                 dialog.response(Gtk.ResponseType.OK)
                 self._complete_sale("cash", cash_given=given)
+                sale_done[0] = True
+                dialog.destroy()
+            elif ptype == "split":
+                try:
+                    cash_val = int(split_page.cash_entry.get_text() or "0")
+                except ValueError:
+                    cash_val = 0
+                try:
+                    card_val = int(split_page.card_entry.get_text() or "0")
+                except ValueError:
+                    card_val = 0
+                if cash_val + card_val < total:
+                    err = Gtk.MessageDialog(
+                        transient_for=dialog,
+                        flags=Gtk.DialogFlags.MODAL,
+                        message_type=Gtk.MessageType.WARNING,
+                        buttons=Gtk.ButtonsType.OK,
+                        text=f"\u0414\u04af\u043d \u0445\u04af\u0440\u044d\u043b\u0446\u044d\u0445\u0433\u04af\u0439.\n\u041d\u0438\u0439\u0442: {format_money(total)}\n\u041e\u0440\u0443\u0443\u043b\u0441\u0430\u043d: {format_money(cash_val + card_val)}",
+                    )
+                    err.run()
+                    err.destroy()
+                    return
+                dialog.response(Gtk.ResponseType.OK)
+                self._complete_sale(
+                    "split", cash_given=cash_val + (abs(total - cash_val - card_val) if cash_val + card_val > total else 0),
+                    cash_amount=cash_val, card_amount=card_val,
+                )
                 sale_done[0] = True
                 dialog.destroy()
             else:
@@ -690,6 +737,75 @@ class POSScreen(Gtk.Box):
 
         box.cash_entry = cash_entry
         box.change_label = change_label
+        return box
+
+    def _build_split_page(self, total, dialog):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(8))
+
+        summary_label = Gtk.Label()
+        summary_label.set_markup(
+            f'<span size="16000" weight="800">\u041d\u0438\u0439\u0442: {format_money(total)}</span>'
+        )
+        summary_label.set_halign(Gtk.Align.CENTER)
+        summary_label.get_style_context().add_class("split-total-label")
+        box.pack_start(summary_label, False, False, 0)
+
+        cash_label = Gtk.Label(label="\U0001f4b5  \u0411\u044d\u043b\u044d\u043d \u043c\u04e9\u043d\u0433\u04e9:")
+        cash_label.set_halign(Gtk.Align.START)
+        cash_label.get_style_context().add_class("split-label")
+        box.pack_start(cash_label, False, False, 0)
+
+        cash_entry = Gtk.Entry()
+        cash_entry.set_placeholder_text("\u0411\u044d\u043b\u044d\u043d \u043c\u04e9\u043d\u0433\u04e9\u043d\u04e9\u04e9 \u0434\u04af\u043d")
+        cash_entry.get_style_context().add_class("barcode-entry")
+        box.pack_start(cash_entry, False, False, 0)
+
+        card_label = Gtk.Label(label="\U0001f4b3  \u041a\u0430\u0440\u0442\u0430\u0430\u0440:")
+        card_label.set_halign(Gtk.Align.START)
+        card_label.get_style_context().add_class("split-label")
+        box.pack_start(card_label, False, False, 0)
+
+        card_entry = Gtk.Entry()
+        card_entry.set_placeholder_text("\u041a\u0430\u0440\u0442\u0430\u0430\u0440 \u0442\u04e9\u043b\u04e9\u0445 \u0434\u04af\u043d")
+        card_entry.get_style_context().add_class("barcode-entry")
+        box.pack_start(card_entry, False, False, 0)
+
+        remaining_label = Gtk.Label()
+        remaining_label.set_halign(Gtk.Align.CENTER)
+        box.pack_start(remaining_label, False, False, 0)
+
+        quick_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(6))
+        quick_row.set_halign(Gtk.Align.CENTER)
+        for label, perc in [("50/50", 0.5), ("60/40", 0.6), ("70/30", 0.7), ("80/20", 0.8)]:
+            btn = Gtk.Button(label=label)
+            btn.get_style_context().add_class("cash-quick-btn")
+            btn.connect("clicked", lambda b, p=perc, ce=cash_entry, t=total: ce.set_text(str(int(t * p))))
+            quick_row.pack_start(btn, False, False, 0)
+        box.pack_start(quick_row, False, False, 0)
+
+        def on_input_changed(*args):
+            try:
+                cash_val = int(cash_entry.get_text() or "0")
+            except ValueError:
+                cash_val = 0
+            try:
+                card_val = int(card_entry.get_text() or "0")
+            except ValueError:
+                card_val = 0
+            remaining = total - cash_val - card_val
+            if remaining > 0:
+                remaining_label.set_label(f"\u04ae\u043b\u0434\u044d\u0433\u0434\u044d\u043b: {format_money(remaining)}")
+            elif remaining < 0:
+                remaining_label.set_label(f"\u04e8\u0433\u04e9\u0433\u0434\u04e9\u043b: {format_money(-remaining)}")
+            else:
+                remaining_label.set_label("\u2713  \u04e8\u0440\u0442\u04e9\u0433 \u043d\u04e9\u0445\u0441\u04e9\u043d")
+
+        cash_entry.connect("changed", on_input_changed)
+        card_entry.connect("changed", on_input_changed)
+
+        box.cash_entry = cash_entry
+        box.card_entry = card_entry
+        box.remaining_label = remaining_label
         return box
 
     def _build_card_page(self, total, items, dialog):
@@ -938,10 +1054,15 @@ class POSScreen(Gtk.Box):
         self._update_cart_ui()
 
     def _update_cart_ui(self):
-        for child in self.cart_list.get_children():
-            self.cart_list.remove(child)
+        for child in list(self.cart_list.get_children()):
+            if not isinstance(child, Gtk.ListBoxRow):
+                self.cart_list.remove(child)
 
         if not self.cart:
+            for child in list(self.cart_list.get_children()):
+                self.cart_list.remove(child)
+                child.destroy()
+
             empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
             empty_box.set_halign(Gtk.Align.CENTER)
             empty_box.set_margin_top(40)
@@ -956,22 +1077,34 @@ class POSScreen(Gtk.Box):
             empty_box.pack_start(empty_label, False, False, 0)
             empty_box.show_all()
             self.cart_list.add(empty_box)
+        else:
+            current_ids = {id(item) for item in self.cart}
 
-        total_amount = 0
-        total_items = 0
-        for item in self.cart:
-            subtotal = item.subtotal
-            total_amount += subtotal
-            total_items += item.quantity
+            for row in list(self.cart_list.get_children()):
+                if not isinstance(row, Gtk.ListBoxRow):
+                    continue
+                item = getattr(row, 'item', None)
+                if item is None or id(item) not in current_ids:
+                    self.cart_list.remove(row)
+                    row.destroy()
 
-            row = make_cart_item_row(
-                item,
-                on_remove=self._on_remove_item,
-                on_qty_change=self._on_qty_changed,
-                cache=self.cache,
-            )
-            row.show_all()
-            self.cart_list.add(row)
+            for item in self.cart:
+                found = False
+                for row in self.cart_list.get_children():
+                    if isinstance(row, Gtk.ListBoxRow) and getattr(row, 'item', None) is item:
+                        row.qty_label.set_text(str(item.quantity))
+                        row.subtotal_label.set_text(format_money(item.subtotal))
+                        found = True
+                        break
+                if not found:
+                    row = make_cart_item_row(
+                        item,
+                        on_remove=self._on_remove_item,
+                        on_qty_change=self._on_qty_changed,
+                        cache=self.cache,
+                    )
+                    row.show_all()
+                    self.cart_list.add(row)
 
         total = self._calc_total()
         self.total_label.set_markup(
@@ -982,14 +1115,12 @@ class POSScreen(Gtk.Box):
 
         self.pay_btn.set_sensitive(total > 0)
 
-        self._update_badges()
-
         try:
             self.emit("cart-changed", self.cart, total)
         except Exception:
             pass
 
-    def _update_badges(self):
+    def _update_badges_periodic(self):
         import database as db
         try:
             held = db.get_held_orders()
@@ -1010,6 +1141,7 @@ class POSScreen(Gtk.Box):
                 self.ebarimt_badge.hide()
         except Exception:
             pass
+        return True
 
     def _calc_total(self):
         return sum(item.subtotal for item in self.cart)
@@ -1018,7 +1150,7 @@ class POSScreen(Gtk.Box):
         item.quantity = max(0.1, item.quantity + delta)
         self._update_cart_ui()
 
-    def _complete_sale(self, payment_type, cash_given=0, card_amount=0, txn_id="", qpay_invoice_id=""):
+    def _complete_sale(self, payment_type, cash_given=0, card_amount=0, cash_amount=0, txn_id="", qpay_invoice_id=""):
         if getattr(self, "_checkout_in_flight", False):
             return
         self._checkout_in_flight = True
@@ -1027,6 +1159,8 @@ class POSScreen(Gtk.Box):
 
         items = [item.to_dict() for item in self.cart]
         total = self._calc_total()
+        import uuid
+        idempotency_key = f"posgtk-{uuid.uuid4()}"
 
         def _write():
             import database as db
@@ -1034,18 +1168,25 @@ class POSScreen(Gtk.Box):
                 sale, error = db.create_sale(
                     cashier_id=None, payment_type="cash",
                     items=items, cash_given=cash_given,
-                    cash_amount=total,
+                    cash_amount=total, idempotency_key=idempotency_key,
                 )
             elif payment_type == "card":
                 sale, error = db.create_sale(
                     cashier_id=None, payment_type="card",
                     items=items, card_amount=total,
-                    terminal_txn_id=txn_id,
+                    terminal_txn_id=txn_id, idempotency_key=idempotency_key,
                 )
             elif payment_type == "qr":
                 sale, error = db.create_sale(
                     cashier_id=None, payment_type="qr",
-                    items=items, card_amount=total,
+                    items=items, card_amount=total, idempotency_key=idempotency_key,
+                )
+            elif payment_type == "split":
+                sale, error = db.create_sale(
+                    cashier_id=None, payment_type="split",
+                    items=items, cash_given=cash_given,
+                    cash_amount=cash_amount, card_amount=card_amount,
+                    idempotency_key=idempotency_key,
                 )
             else:
                 sale, error = None, f"Төлбөрийн төрөл буруу: {payment_type}"
@@ -1373,7 +1514,7 @@ class POSScreen(Gtk.Box):
                           "price": price, "category": category, "unit": unit}
                 self._add_product_to_cart(product)
                 self._build_product_grid()
-                self._apply_filters()
+                self._on_category_selected(self._active_category)
                 dialog.destroy()
                 return
             dialog.destroy()
@@ -1707,47 +1848,6 @@ class POSScreen(Gtk.Box):
             else:
                 self.held_count_label.set_text("")
                 self.held_count_label.hide()
-
-    def bind_keyboard_accelerators(self):
-        toplevel = self.get_toplevel()
-        if not toplevel or not isinstance(toplevel, Gtk.Window):
-            GLib.idle_add(self.bind_keyboard_accelerators)
-            return False
-
-        def on_key_pressed(window, event):
-            keyval = event.keyval
-
-            if keyval == Gdk.KEY_F2:
-                self.handle_payment_trigger("Бэлэн")
-                return True
-            elif keyval == Gdk.KEY_F4:
-                self.handle_payment_trigger("Карт")
-                return True
-            elif keyval == Gdk.KEY_F7:
-                self._toggle_ebarimt_type()
-                return True
-            elif keyval == Gdk.KEY_F9:
-                self._on_hold_order_clicked()
-                return True
-            elif keyval == Gdk.KEY_F10:
-                self._on_resume_order_clicked()
-                return True
-            elif keyval == Gdk.KEY_Escape:
-                if isinstance(window.get_focus(), (Gtk.Entry, Gtk.SearchEntry)):
-                    window.set_focus(None)
-                    self.barcode_entry.grab_focus()
-                    return True
-                if self.cart:
-                    self._clear_cart()
-                    self._show_toast("🗑️ Сагсыг цэвэрлэв.", "info")
-                self.barcode_entry.grab_focus()
-                return True
-
-            return False
-
-        toplevel.connect("key-press-event", on_key_pressed)
-        logger.info("Native POS keyboard accelerators wired.")
-        return False
 
     def _show_help(self):
         text = """╔══════════════════════════════╗

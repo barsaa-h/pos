@@ -1207,7 +1207,7 @@ def get_categories():
 # ─────────────────────────────────────────────
 
 def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
-                card_amount=0, cash_amount=0, return_of_sale_id=None):
+                card_amount=0, cash_amount=0, return_of_sale_id=None, idempotency_key=None):
     """
     Create a sale with server-side stock validation inside the transaction.
     For returns, payment_type='return' and quantities should be negative.
@@ -1215,6 +1215,11 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
     if not items:
         return None, "Сагс хоосон байна"
 
+    if idempotency_key:
+        existing = check_idempotency_key(idempotency_key)
+        if existing:
+            return None, "Энэ борлуулалт аль хэдийн бүртгэгдсэн"
+    
     is_return = (payment_type == "return")
 
     subtotal = 0
@@ -1402,6 +1407,9 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
         "return_of_sale_id": return_of_sale_id if is_return else None,
         "items": validated_items,
     }
+    if idempotency_key:
+        import json
+        save_idempotency_key(idempotency_key, sale_id, json.dumps({"sale_id": sale_id}))
     return sale, None
 
 

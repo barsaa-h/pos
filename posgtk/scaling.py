@@ -70,7 +70,7 @@ def get_scale():
 
 def scaled_px(px):
     """Scale a pixel value by global factor."""
-    return max(1, int(round(px * get_scale())))
+    return max(1, int(round(px * _SCALE)))
 
 
 def scaled_size(width, height):
