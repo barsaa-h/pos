@@ -61,6 +61,8 @@ class CustomerDisplayWindow(Gtk.Window):
         self._pos_screen = pos_screen
         self._store_info = self._load_store_info()
         self._item_widgets = {}
+        self._complete_timeout_id = 0
+        self._showing_complete = False
 
         provider = Gtk.CssProvider()
         customer_css = scale_css(CUSTOMER_CSS.decode(), get_scale()).encode()
@@ -114,6 +116,7 @@ class CustomerDisplayWindow(Gtk.Window):
         self._build_shopping_view()
         self._build_paying_view()
         self._build_qr_view()
+        self._build_complete_view()
 
         vbox.pack_start(top_bar, False, False, 0)
         vbox.pack_start(self.stack, True, True, 0)
@@ -245,6 +248,55 @@ class CustomerDisplayWindow(Gtk.Window):
         overlay.add(inner)
         self.stack.add_named(overlay, "qr")
 
+    def _build_complete_view(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.set_name("cd-complete-view")
+        box.set_valign(Gtk.Align.CENTER)
+        box.set_halign(Gtk.Align.CENTER)
+
+        icon = Gtk.Label(label="✅")
+        icon.set_name("cd-complete-icon")
+
+        title = Gtk.Label()
+        title.set_markup('<span font_weight="900" size="52000" foreground="#15803d">Гүйлгээ амжилттай</span>')
+        title.set_name("cd-complete-title")
+        title.set_margin_top(scaled_px(8))
+
+        self.complete_sale_id = Gtk.Label()
+        self.complete_sale_id.set_name("cd-complete-sale-id")
+        self.complete_sale_id.set_margin_top(scaled_px(4))
+
+        self.complete_total = Gtk.Label()
+        self.complete_total.set_name("cd-complete-total")
+        self.complete_total.set_margin_top(scaled_px(16))
+
+        self.complete_payment = Gtk.Label()
+        self.complete_payment.set_name("cd-complete-payment")
+        self.complete_payment.set_margin_top(scaled_px(8))
+
+        self.complete_change = Gtk.Label()
+        self.complete_change.set_name("cd-complete-change")
+        self.complete_change.set_margin_top(scaled_px(4))
+
+        self.complete_lottery = Gtk.Label()
+        self.complete_lottery.set_name("cd-complete-lottery")
+        self.complete_lottery.set_margin_top(scaled_px(12))
+
+        hint = Gtk.Label()
+        hint.set_markup('<span font_weight="600" size="22000" foreground="#64748b">Шинэ бараа сонгоно уу</span>')
+        hint.set_name("cd-complete-hint")
+        hint.set_margin_top(scaled_px(24))
+
+        box.pack_start(icon, False, False, 0)
+        box.pack_start(title, False, False, 0)
+        box.pack_start(self.complete_sale_id, False, False, 0)
+        box.pack_start(self.complete_total, False, False, 0)
+        box.pack_start(self.complete_payment, False, False, 0)
+        box.pack_start(self.complete_change, False, False, 0)
+        box.pack_start(self.complete_lottery, False, False, 0)
+        box.pack_start(hint, False, False, 0)
+        self.stack.add_named(box, "complete")
+
     def _start_clock(self):
         def _update_clock():
             self.clock_label.set_label(time.strftime("%H:%M:%S"))
@@ -253,6 +305,8 @@ class CustomerDisplayWindow(Gtk.Window):
         _update_clock()
 
     def _on_cart_changed(self, pos_screen, items, total):
+        if self._showing_complete:
+            return
         if not items:
             GLib.idle_add(self._show_idle)
             return
@@ -352,7 +406,59 @@ class CustomerDisplayWindow(Gtk.Window):
         self.stack.set_visible_child_name("qr")
 
     def show_idle(self):
+        self._showing_complete = False
+        if self._complete_timeout_id:
+            GLib.source_remove(self._complete_timeout_id)
+            self._complete_timeout_id = 0
         self.stack.set_visible_child_name("idle")
+
+    def show_complete(self, sale):
+        if self._complete_timeout_id:
+            GLib.source_remove(self._complete_timeout_id)
+        self._showing_complete = True
+
+        payment_labels = {"cash": "💵 Бэлэн", "card": "💳 Карт", "split": "🔀 Холимог", "qr": "📱 QR"}
+        ptype = sale.get("payment_type", "")
+        payment_label = payment_labels.get(ptype, ptype.upper())
+
+        total = sale.get("total", 0)
+        change = sale.get("change_given", 0)
+        lottery = sale.get("ebarimt_lottery", "")
+
+        self.complete_sale_id.set_markup(
+            f'<span font_weight="800" size="22000" foreground="#0f172a">✅ №{sale.get("id", "?")}</span>'
+        )
+        self.complete_total.set_markup(
+            f'<span font_weight="900" size="64000" foreground="#15803d">{format_money(total)}</span>'
+        )
+        self.complete_payment.set_markup(
+            f'<span font_weight="700" size="24000" foreground="#334155">{payment_label}</span>'
+        )
+        if change > 0 and ptype in ("cash", "split"):
+            self.complete_change.set_markup(
+                f'<span font_weight="800" size="28000" foreground="#d97706">Хариулт: {format_money(change)}</span>'
+            )
+            self.complete_change.show()
+        else:
+            self.complete_change.hide()
+
+        if lottery:
+            self.complete_lottery.set_markup(
+                f'<span font_weight="900" size="30000" foreground="#dc2626">🎰 {lottery}</span>'
+            )
+            self.complete_lottery.show()
+        else:
+            self.complete_lottery.hide()
+
+        self.stack.set_visible_child_name("complete")
+
+        self._complete_timeout_id = GLib.timeout_add_seconds(10, self._on_complete_timeout)
+
+    def _on_complete_timeout(self):
+        self._showing_complete = False
+        self._complete_timeout_id = 0
+        self.stack.set_visible_child_name("idle")
+        return False
 
 CUSTOMER_CSS = b"""
 #customer-display {
@@ -400,4 +506,13 @@ CUSTOMER_CSS = b"""
 #cd-qr-image { padding: 12px; background: #ffffff; border-radius: 20px; }
 #cd-qr-amount { font-size: 36px; font-weight: 900; color: #ffffff; }
 #cd-qr-hint { font-size: 18px; color: #cccccc; font-weight: 700; }
+#cd-complete-view { background: transparent; }
+#cd-complete-icon { font-size: 80px; margin-bottom: 8px; }
+#cd-complete-title { font-size: 38px; font-weight: 900; color: #15803d; }
+#cd-complete-sale-id { font-size: 16px; color: #0f172a; }
+#cd-complete-total { font-size: 48px; font-weight: 900; color: #15803d; }
+#cd-complete-payment { font-size: 20px; color: #334155; font-weight: 700; }
+#cd-complete-change { font-size: 22px; color: #d97706; font-weight: 800; }
+#cd-complete-lottery { font-size: 24px; color: #dc2626; font-weight: 900; background: #fef2f2; padding: 8px 24px; border-radius: 12px; }
+#cd-complete-hint { font-size: 18px; color: #64748b; }
 """

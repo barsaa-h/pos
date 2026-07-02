@@ -29,6 +29,7 @@ class POSScreen(Gtk.Box):
         'show-paying': (GObject.SIGNAL_RUN_LAST, None, (int, str)),
         'show-qr': (GObject.SIGNAL_RUN_LAST, None, (int, object)),
         'show-idle': (GObject.SIGNAL_RUN_LAST, None, ()),
+        'sale-complete': (GObject.SIGNAL_RUN_LAST, None, (object,)),
     }
 
     def __init__(self, app=None):
@@ -1270,7 +1271,7 @@ class POSScreen(Gtk.Box):
         self._last_sale = sale
         self._show_sale_complete(sale)
         try:
-            self.emit("show-idle")
+            self.emit("sale-complete", sale)
         except Exception:
             pass
 

@@ -431,7 +431,7 @@ class POSApplication(Gtk.Application):
                 self.customer_window.show_all()
                 self.pos_screen.connect("show-paying", lambda ps, total, ptype: self.customer_window.show_paying(total, ptype))
                 self.pos_screen.connect("show-qr", lambda ps, total, pixbuf: self.customer_window.show_qr(total, pixbuf))
-                self.pos_screen.connect("show-idle", lambda ps: self.customer_window.show_idle())
+                self.pos_screen.connect("sale-complete", lambda ps, sale: self.customer_window.show_complete(sale))
         except Exception as e:
             logger.warning(f"Customer display failed: {e}")
 
