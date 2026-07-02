@@ -380,6 +380,19 @@ def migrate_db():
                 )
             logger.info("Migration: Categories table seeded successfully")
 
+        # Migration 15: Create audit_log table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT DEFAULT '',
+                details TEXT DEFAULT '',
+                cashier_id INTEGER,
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
+            )
+        """)
+
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS products (
@@ -432,6 +445,7 @@ CREATE TABLE IF NOT EXISTS sales (
     cash_amount INTEGER DEFAULT 0,
     ebarimt_id TEXT DEFAULT '',
     ebarimt_qr TEXT DEFAULT '',
+    ebarimt_lottery TEXT DEFAULT '',
     ebarimt_status TEXT DEFAULT 'pending'
         CHECK(ebarimt_status IN ('pending', 'sent', 'failed', 'skipped')),
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -505,6 +519,16 @@ CREATE TABLE IF NOT EXISTS stock_adjustments (
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (product_id) REFERENCES products(id),
     FOREIGN KEY (cashier_id) REFERENCES cashiers(id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT DEFAULT '',
+    details TEXT DEFAULT '',
+    cashier_id INTEGER,
+    created_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
@@ -1948,6 +1972,66 @@ def _cleanup_old_backups():
         logger.error(f"Backup cleanup error: {e}")
 
 
+def check_db_integrity():
+    with get_db() as conn:
+        result = conn.execute("PRAGMA integrity_check").fetchone()
+        return result is not None and result[0] == "ok"
+
+
+def verify_backup(filepath):
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Нөөц файл олдсонгүй: {filepath}")
+    try:
+        backup_conn = sqlite3.connect(filepath)
+        backup_conn.execute("SELECT count(*) FROM sales")
+        backup_conn.execute("SELECT count(*) FROM products")
+        backup_conn.close()
+    except sqlite3.Error as e:
+        raise ValueError(f"Нөөц файл гэмтсэн эсвэл хүчингүй: {e}")
+    return True
+
+
+def restore_from_backup(filepath):
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Нөөц файл олдсонгүй: {filepath}")
+    import shutil
+    shutil.copy2(filepath, DB_PATH)
+    return True
+
+
+def get_ebarimt_failed_count():
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM sales WHERE ebarimt_status IN ('pending', 'failed')"
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+
+def quote_sale(items, payment_type="card"):
+    if not items:
+        return None, "Сагс хоосон байна"
+    subtotal = 0
+    for item in items:
+        qty = item.get("quantity", 0)
+        price = item.get("unit_price", 0)
+        try:
+            qty = float(qty)
+            price = int(price)
+        except (TypeError, ValueError):
+            return None, f"Буруу тоо: {item.get('product_name', '?')}"
+        subtotal += int(qty * price)
+    total = subtotal
+    return {"subtotal": subtotal, "total": total, "items": items, "payment_type": payment_type}, None
+
+
+def log_audit(action, entity_type, entity_id=None, details="", cashier_id=None):
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO audit_log (action, entity_type, entity_id, details, cashier_id) VALUES (?, ?, ?, ?, ?)",
+            (action, entity_type, entity_id or "", details, cashier_id)
+        )
+
+
 def check_and_backup():
     today = datetime.now().strftime("%Y-%m-%d")
     last_backup = get_setting("last_backup_date", "")
@@ -2000,3 +2084,62 @@ def get_held_order(order_id):
 def delete_held_order(order_id):
     with get_db() as conn:
         conn.execute("DELETE FROM held_orders WHERE id = ?", (order_id,))
+
+
+def create_cashier(name, pin, role="cashier", is_active=1):
+    if not name or not name.strip():
+        return None, "Нэр хоосон байна"
+    if not pin or len(pin) < 4:
+        return None, "ПИН 4-с багагүй оронтой байна"
+    pin_hash = hash_password(pin)
+    with get_db() as conn:
+        cursor = conn.execute(
+            "INSERT INTO cashiers (name, pin_hash, role, is_active) VALUES (?, ?, ?, ?)",
+            (name.strip(), pin_hash, role, is_active)
+        )
+        return cursor.lastrowid, None
+
+
+def get_cashiers(include_inactive=False):
+    query = "SELECT * FROM cashiers"
+    if not include_inactive:
+        query += " WHERE is_active = 1"
+    query += " ORDER BY name"
+    with get_db() as conn:
+        rows = conn.execute(query).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_cashier(cashier_id):
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM cashiers WHERE id = ?", (cashier_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def update_cashier(cashier_id, **kwargs):
+    allowed = {"name", "role", "is_active"}
+    updates = {k: v for k, v in kwargs.items() if k in allowed}
+    if not updates:
+        return False, "Шинэчлэх талбар хоосон"
+    pin = kwargs.get("pin")
+    if pin:
+        updates["pin_hash"] = hash_password(pin)
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [cashier_id]
+    with get_db() as conn:
+        conn.execute(f"UPDATE cashiers SET {set_clause} WHERE id = ?", values)
+        return True, None
+
+
+def delete_cashier(cashier_id):
+    with get_db() as conn:
+        conn.execute("UPDATE cashiers SET is_active = 0 WHERE id = ?", (cashier_id,))
+
+
+def verify_cashier_pin(cashier_id, pin):
+    cashier = get_cashier(cashier_id)
+    if not cashier:
+        return False
+    return verify_password(pin, cashier["pin_hash"])

@@ -36,26 +36,3 @@ def test_delete_held_order(db, request):
     assert get_held_order(order_id) is not None
     delete_held_order(order_id)
     assert get_held_order(order_id) is None
-
-
-def test_held_orders_api(client, csrf_token):
-    import json
-    resp = client.post("/api/hold-order",
-        data=json.dumps({
-            "label": "API test",
-            "items": [{"product_name": "Test", "quantity": 1, "unit_price": 500, "subtotal": 500}],
-            "total": 500
-        }),
-        content_type="application/json",
-        headers={"X-CSRF-Token": csrf_token}
-    )
-    assert resp.status_code == 200
-    data = resp.get_json()
-    assert data["success"] is True
-    assert data["id"] is not None
-
-    resp2 = client.get("/api/held-orders")
-    assert resp2.status_code == 200
-    data2 = resp2.get_json()
-    assert data2["success"] is True
-    assert len(data2["orders"]) >= 1

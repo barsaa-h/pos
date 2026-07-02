@@ -236,3 +236,65 @@ def test_get_sales_crud(db):
     from database import get_sales_list
     sales = get_sales_list()
     assert isinstance(sales, list)
+
+
+def test_check_db_integrity(db):
+    from database import check_db_integrity
+    assert check_db_integrity() is True
+
+
+def test_get_ebarimt_failed_count(db):
+    from database import get_ebarimt_failed_count
+    count = get_ebarimt_failed_count()
+    assert isinstance(count, int)
+    assert count >= 0
+
+
+def test_quote_sale(db):
+    from database import quote_sale
+    items = [{"product_name": "Test", "quantity": 2, "unit_price": 500, "subtotal": 1000}]
+    quote, error = quote_sale(items, payment_type="card")
+    assert error is None
+    assert quote["subtotal"] == 1000
+    assert quote["total"] == 1000
+
+
+def test_log_audit(db):
+    from database import log_audit
+    log_audit("test_action", "test_entity", entity_id="1", details="test details")
+    row = db.execute("SELECT * FROM audit_log WHERE action = ?", ("test_action",)).fetchone()
+    assert row is not None
+    assert row["entity_type"] == "test_entity"
+    assert row["entity_id"] == "1"
+
+
+def test_create_cashier(db, request):
+    from database import create_cashier, get_cashier, verify_cashier_pin
+    cid, error = create_cashier("Кассчин 1", "1234", role="cashier")
+    assert error is None
+    assert cid is not None
+    cashier = get_cashier(cid)
+    assert cashier["name"] == "Кассчин 1"
+    assert cashier["role"] == "cashier"
+    assert verify_cashier_pin(cid, "1234") is True
+    assert verify_cashier_pin(cid, "0000") is False
+
+
+def test_get_all_cashiers(db, request):
+    from database import create_cashier, get_cashiers, delete_cashier
+    create_cashier("Кассчин 2", "5678")
+    create_cashier("Кассчин 3", "9012")
+    cashiers = get_cashiers()
+    assert len(cashiers) >= 2
+    delete_cashier(cashiers[0]["id"])
+    active = get_cashiers(include_inactive=False)
+    assert len(active) < len(cashiers)
+
+
+def test_invalidate_settings_cache():
+    from config import invalidate_settings_cache, get_config, _SETTINGS_CACHE
+    _SETTINGS_CACHE["test_x"] = "cached"
+    assert get_config("test_x") == "cached"
+    invalidate_settings_cache()
+    assert "test_x" not in _SETTINGS_CACHE
+

@@ -1,6 +1,6 @@
 """
 gtk/login.py — Admin login dialog with PIN/password + brute-force lockout.
-Same logic as app.py:888-900 (5 failures = 15 minute lockout per IP).
+5 failures = 15 minute lockout.
 """
 
 import time

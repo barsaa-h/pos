@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULTS = {
     "store_name": "Миний дэлгүүр",
-    "store_address": "Улаанбаатар",
-    "store_phone": "",
+    "store_address": "Улаанбаатар, БЗД, 1-р хороо",
+    "store_phone": "70112233",
     "printer_port": "/dev/usb/lp0",
     "low_stock_default": "5",
     "ebarimt_api_url": "",
@@ -28,7 +28,7 @@ DEFAULTS = {
     "ebarimt_merchant_tin": "",
     "receipt_footer": "Баярлалаа! Дахин үйлчлүүлнэ үү.",
     "last_backup_date": "",
-    "admin_password_hash": "",  # Empty = not set yet, user sets on first admin unlock
+    "admin_password_hash": "",
     "default_payment_type": "cash",
     "auto_print_receipt": "true",
     "show_vat_on_receipt": "false",
@@ -41,57 +41,25 @@ DEFAULTS = {
     "return_window_days": "30",
 }
 
-# Flask configuration
-def _generate_secret_key():
-    """Generate a random secret key. Saved to DB for persistence across restarts."""
-    import secrets
-    import os as _os
-    return secrets.token_hex(32)
 
-def _get_or_create_secret_key():
-    env_key = os.environ.get("POS_SECRET_KEY", "")
-    if env_key and env_key != "pos-secret-change-me-in-production-2024-mongolia":
-        return env_key
-    # Try DB-stored key first
-    try:
-        from database import get_setting
-        db_key = get_setting("pos_secret_key", "")
-        if db_key and len(db_key) >= 32:
-            return db_key
-    except Exception:
-        pass
-    # Generate and store a new key
-    new_key = _generate_secret_key()
-    try:
-        from database import set_setting
-        set_setting("pos_secret_key", new_key)
-    except Exception:
-        pass
-    # Fallback: random key for this session (won't persist, but safe)
-    if not env_key:
-        return new_key
-    return env_key
+_SETTINGS_CACHE = {}
 
-FLASK_SECRET_KEY = _get_or_create_secret_key()
-FLASK_HOST = os.environ.get("POS_HOST", "0.0.0.0")
-FLASK_PORT = int(os.environ.get("POS_PORT", "5000"))
-FLASK_DEBUG = os.environ.get("POS_DEBUG", "0") == "1"
 
-# Session timeout: 8 hours in seconds
-SESSION_TIMEOUT_SECONDS = 8 * 60 * 60
+def invalidate_settings_cache():
+    _SETTINGS_CACHE.clear()
 
 
 def get_config(key):
     """
     Get a configuration value from the database settings table.
     Falls back to DEFAULTS if the key is not found or DB is unavailable.
-
-    This function imports database lazily to avoid circular imports
-    and to handle the case where the DB hasn't been initialized yet.
     """
+    if key in _SETTINGS_CACHE:
+        return _SETTINGS_CACHE[key]
     try:
         from database import get_setting
         value = get_setting(key, DEFAULTS.get(key, ""))
+        _SETTINGS_CACHE[key] = value
         return value
     except Exception as e:
         logger.warning(f"Could not read setting '{key}' from DB: {e}")

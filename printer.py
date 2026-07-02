@@ -81,7 +81,7 @@ def get_effective_printer_port():
     try:
         from config import get_config
         configured = get_config("printer_port")
-        if configured and configured.strip() and configured != "/dev/usb/lp0":
+        if configured and configured.strip():
             return configured.strip()
     except Exception:
         pass
