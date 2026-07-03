@@ -1,0 +1,20 @@
+[Unit]
+Description=Моност POS System — Flask Backend
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/barsaa/pos/venv/bin/python3 /home/barsaa/pos/app.py
+WorkingDirectory=/home/barsaa/pos
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+Environment=POS_SKIP_MODULE_INIT=1
+Environment=POS_HOST=0.0.0.0
+Environment=POS_PORT=8765
+
+[Install]
+WantedBy=default.target

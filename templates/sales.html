@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Борлуулалтын түүх{% endblock %}
+
+{% block head %}
+<script>
+function setQuickFilter(type) {
+    var today = new Date();
+    var dateFrom, dateTo;
+    dateTo = today.toISOString().split('T')[0];
+
+    if (type === 'today') {
+        dateFrom = dateTo;
+    } else if (type === 'yesterday') {
+        var yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+        dateFrom = dateTo = yesterday.toISOString().split('T')[0];
+    } else if (type === 'week') {
+        var weekStart = new Date(today);
+        weekStart.setDate(today.getDate() - today.getDay() + 1);
+        dateFrom = weekStart.toISOString().split('T')[0];
+    } else if (type === 'month') {
+        dateFrom = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-01';
+    }
+
+    var fromInput = document.querySelector('input[name="date_from"]');
+    var toInput = document.querySelector('input[name="date_to"]');
+    if (fromInput) fromInput.value = dateFrom;
+    if (toInput) toInput.value = dateTo;
+
+    document.querySelectorAll('.quick-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+    event.target.classList.add('active');
+    document.getElementById('salesFilterForm').submit();
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">📋 Борлуулалтын түүх</h1>
+    <span class="text-muted">Нийт: {{ total_count }} борлуулалт</span>
+</div>
+
+<div class="filter-bar" style="margin-bottom:12px;">
+    <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+        <button class="quick-filter-btn" onclick="setQuickFilter('today')">Өнөөдөр</button>
+        <button class="quick-filter-btn" onclick="setQuickFilter('yesterday')">Өчигдөр</button>
+        <button class="quick-filter-btn" onclick="setQuickFilter('week')">Энэ долоо хоног</button>
+        <button class="quick-filter-btn" onclick="setQuickFilter('month')">Энэ сар</button>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form id="salesFilterForm" method="GET" action="{{ url_for('sales_page') }}" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <input type="date" name="date_from" value="{{ date_from }}" class="form-control" style="width:auto;">
+        <span>—</span>
+        <input type="date" name="date_to" value="{{ date_to }}" class="form-control" style="width:auto;">
+        <button type="submit" class="btn btn-primary btn-sm">Хайх</button>
+        {% if date_from or date_to %}
+        <a href="{{ url_for('sales_page') }}" class="btn btn-secondary btn-sm">Цэвэрлэх</a>
+        {% endif %}
+    </form>
+</div>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Огноо</th>
+                <th>Төлбөр</th>
+                <th class="text-right">Нийт (₮)</th>
+                <th class="text-center">eBarimt</th>
+                <th class="text-center">Сугалаа</th>
+                <th class="text-center">Төлөв</th>
+                <th class="text-center">Үйлдэл</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in sales %}
+            <tr>
+                <td>{{ s.id }}</td>
+                <td>{{ s.created_at }}</td>
+                <td>
+                    {% if s.payment_type == 'return' %}
+                    <span class="payment-badge return-badge">↩ Буцаалт</span>
+                    {% elif s.payment_type == 'cash' %}
+                    <span class="payment-badge cash">💵 Бэлэн</span>
+                    {% elif s.payment_type == 'card' %}
+                    <span class="payment-badge card">💳 Карт</span>
+                    {% elif s.payment_type == 'qr' %}
+                    <span class="payment-badge qr">📱 QR</span>
+                    {% else %}
+                    <span class="payment-badge split">🔀 Холимог</span>
+                    {% endif %}
+                </td>
+                <td class="text-right text-bold" {% if s.payment_type == 'return' %}style="color:var(--error);"{% endif %}>
+                    {% if s.payment_type == 'return' %}-{% endif %}{{ "{:,.0f}".format(s.total|abs) }}
+                </td>
+                <td class="text-center">
+                    <span class="status-badge status-{{ s.ebarimt_status }}">{{ s.ebarimt_status }}</span>
+                </td>
+                <td class="text-center">
+                    {%- if s.ebarimt_lottery -%}
+                    <span style="font-weight:700; color:var(--warning);">🎰 {{ s.ebarimt_lottery }}</span>
+                    {%- else -%}
+                    <span class="text-muted">—</span>
+                    {%- endif -%}
+                </td>
+                <td class="text-center">
+                    {% if s.return_of_sale_id %}
+                    <span class="status-badge status-failed">↩ Буцаагдсан</span>
+                    {% elif s.payment_type == 'return' %}
+                    <span class="status-badge" style="background:var(--error-bg); color:var(--error);">Буцаалт</span>
+                    {% else %}
+                    <span class="status-badge status-sent">✓</span>
+                    {% endif %}
+                </td>
+                <td class="text-center">
+                    <a href="{{ url_for('sale_detail', sale_id=s.id) }}" class="btn btn-sm btn-secondary">
+                        👁
+                    </a>
+                    <button class="btn btn-sm btn-primary" onclick="reprintEbarimt({{ s.id }})" title="eBarimt дахин хэвлэх">
+                        🖨
+                    </button>
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not sales %}
+            <tr>
+                <td colspan="8" class="text-center text-muted" style="padding:32px;">
+                    Борлуулалт олдсонгүй.
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}&date_from={{ date_from }}&date_to={{ date_to }}">← Өмнөх</a>
+    {% endif %}
+    {% for p in range(1, total_pages + 1) %}
+        {% if p == page %}
+        <span class="active">{{ p }}</span>
+        {% elif p <= 3 or p > total_pages - 3 or (p >= page - 2 and p <= page + 2) %}
+        <a href="?page={{ p }}&date_from={{ date_from }}&date_to={{ date_to }}">{{ p }}</a>
+        {% elif p == 4 or p == total_pages - 3 %}
+        <span>...</span>
+        {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+    <a href="?page={{ page + 1 }}&date_from={{ date_from }}&date_to={{ date_to }}">Дараах →</a>
+    {% endif %}
+</div>
+{% endif %}
+
+<script>
+function reprintEbarimt(saleId) {
+    if (!confirm('Баримтыг дахин хэвлэх үү?\neBarimt амжилтгүй бол дахин илгээгдэнэ.')) return;
+    fetch('/api/reprint/' + saleId, { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                var msg = 'Баримт хэвлэгдлээ!';
+                if (data.ebarimt_retried) {
+                    msg += data.ebarimt_success ? ' eBarimt илгээгдлээ.' : ' eBarimt илгээгдсэнгүй.';
+                }
+                alert(msg);
+                location.reload();
+            } else {
+                alert('Хэвлэх алдаа: ' + (data.error || 'Тодорхойгүй'));
+            }
+        })
+        .catch(function() { alert('Сүлжээний алдаа'); });
+}
+</script>
+{% endblock %}

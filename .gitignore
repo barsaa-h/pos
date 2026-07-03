@@ -1,0 +1,17 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.db
+data/
+backups/
+.env
+.DS_Store
+*.egg-info/
+.pytest_cache/
+logs/
+static/uploads/
+dist/
+*.spec
+offline/debs/
+offline/wheels/

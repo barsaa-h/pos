@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="mn" data-theme="light"{% if settings.get('low_perf_mode', 'false') == 'true' %} data-perf="low"{% endif %}>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}POS Систем{% endblock %} — {{ store_info.name }}</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='pos-icon-32.png') }}">
+    {# Performance: drop Google Fonts request.
+       Store computers run Linux Mint offline; the external CDN round-trip
+       blocked first paint and the font never loaded anyway. The font stack
+       in style.css falls back to system fonts (DejaVu Sans on Mint,
+       Liberation Sans as a fallback) which render perfectly. #}
+    <link rel="stylesheet" href="{{ static_url('style.css') }}">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Үндсэн агуулга руу шилжих</a>
+
+    <nav class="top-nav">
+        <div class="nav-left">
+            <a href="{{ url_for('pos') }}" class="nav-brand">{{ store_info.name }}</a>
+            <div class="nav-links">
+                <a href="{{ url_for('pos') }}" class="nav-link {% if request.endpoint == 'pos' %}active{% endif %}">
+                    🛒 Борлуулалт
+                </a>
+                <a href="{{ url_for('sales_page') }}" class="nav-link {% if request.endpoint in ['sales_page', 'sale_detail'] %}active{% endif %}">
+                    📋 Түүх <span id="ebarimtPendingBadge" style="display:none; background:var(--error); color:#fff; border-radius:50%; padding:1px 6px; font-size:0.7rem; margin-left:2px; vertical-align:super;"></span>
+                </a>
+                <a href="{{ url_for('products_page') }}" class="nav-link {% if request.endpoint == 'products_page' %}active{% endif %}">
+                    📦 Бараа
+                </a>
+                <a href="{{ url_for('categories_page') }}" class="nav-link {% if request.endpoint == 'categories_page' %}active{% endif %}">
+                    🏷 Ангилал
+                </a>
+                <a href="{{ url_for('reports_page') }}" class="nav-link {% if request.endpoint == 'reports_page' %}active{% endif %}">
+                    📈 Тайлан
+                </a>
+                <a href="{{ url_for('settings_page') }}" class="nav-link {% if request.endpoint == 'settings_page' %}active{% endif %}">
+                    ⚙️ Тохиргоо
+                </a>
+            </div>
+        </div>
+        <div class="nav-right">
+            <span class="nav-clock" id="navClock">--:--:--</span>
+        </div>
+    </nav>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-container" role="status" aria-live="polite">
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">
+            {{ message }}
+            <button onclick="this.parentElement.remove()" class="flash-close">&times;</button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <main class="main-content {% block content_class %}{% endblock %}" id="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <script>
+        function updateClock() {
+            const el = document.getElementById('navClock');
+            if (el) {
+                const now = new Date();
+                el.textContent = now.toLocaleTimeString('mn-MN', {
+                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                });
+            }
+        }
+        updateClock();
+        {# Low-perf mode: tick the clock once per minute instead of every second.
+           The cashier doesn't need second precision and a per-second setInterval
+           is one of the JS hot paths during checkout. #}
+        {% if settings.get('low_perf_mode', 'false') == 'true' %}
+        setInterval(updateClock, 30000);
+        {% else %}
+        setInterval(updateClock, 1000);
+        {% endif %}
+
+        setTimeout(function() {
+            const flashes = document.querySelectorAll('.flash');
+            flashes.forEach(function(f) {
+                f.style.opacity = '0';
+                f.style.transform = 'translateX(100%)';
+                setTimeout(function() { f.remove(); }, 500);
+            });
+        }, 5000);
+
+        function updateEbarimtBadge() {
+            fetch('/api/ebarimt/pending-count', { cache: 'no-store' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var badge = document.getElementById('ebarimtPendingBadge');
+                    if (badge) {
+                        if (data.count > 0) {
+                            badge.textContent = data.count;
+                            badge.style.display = 'inline';
+                        } else {
+                            badge.style.display = 'none';
+                        }
+                    }
+                })
+                .catch(function() {});
+        }
+        updateEbarimtBadge();
+        setInterval(updateEbarimtBadge, 60000);
+
+        (function() {
+            var originalFetch = window.fetch;
+
+            function getCsrfToken() {
+                const meta = document.querySelector('meta[name="csrf-token"]');
+                return meta ? meta.getAttribute('content') : '';
+            }
+
+            function updateCsrfMeta(token) {
+                var meta = document.querySelector('meta[name="csrf-token"]');
+                if (meta) meta.setAttribute('content', token);
+                document.querySelectorAll('input[name="csrf_token"]').forEach(function(inp) {
+                    inp.value = token;
+                });
+            }
+
+            window.fetch = function(input, init) {
+                init = init || {};
+                var headers = new Headers(init.headers);
+                var method = (init.method || 'GET').toUpperCase();
+                var csrfToken = getCsrfToken();
+
+                if (csrfToken && ['POST','PUT','PATCH','DELETE'].indexOf(method) !== -1) {
+                    if (!headers.has('X-CSRF-Token')) {
+                        headers.set('X-CSRF-Token', csrfToken);
+                    }
+                }
+                init.headers = headers;
+
+                var retries = 0;
+                var doFetch = function() {
+                    return originalFetch.call(window, input, init).then(function(res) {
+                        var newToken = res.headers.get('X-CSRF-Token');
+                        if (newToken) updateCsrfMeta(newToken);
+
+                        if (res.status === 403 && getCsrfToken() && retries < 1) {
+                            retries++;
+                            headers.set('X-CSRF-Token', getCsrfToken());
+                            init.headers = headers;
+                            return doFetch();
+                        }
+                        return res;
+                    });
+                };
+                return doFetch();
+            };
+        })();
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

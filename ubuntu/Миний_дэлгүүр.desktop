@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Миний дэлгүүр
+Name[en]=My Store POS
+Comment=POS систем — Борлуулалт, нөөц, тайлан
+Comment[en]=Point of Sale — Sales, inventory, reports
+Exec=ROOT_DIR_PLACEHOLDER/start.sh
+Path=ROOT_DIR_PLACEHOLDER
+Icon=ROOT_DIR_PLACEHOLDER/static/pos-icon.png
+Terminal=false
+Categories=Office;Finance;
+StartupNotify=true
+StartupWMClass=Миний дэлгүүр
+Keywords=pos;sale;store;point of sale;борлуулалт;дэлгүүр;касс
+MimeType=

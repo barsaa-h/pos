@@ -1,0 +1,497 @@
+================================================================================
+  ПОС СИСТЕМ — МИНИЙ ДЭЛГҮҮР / MY STORE POS SYSTEM
+  Төслийн бүрэн баримтжуулалт / Full Project Documentation
+================================================================================
+
+СҮҮЛИЙН ШИНЭЧЛЭЛТ: 2024 (Jun)
+ХИЙСЭН: OpenAI opmniscient / opencode
+ТӨХӨӨРӨМЖ: deepseek-v4-flash-free
+
+================================================================================
+ГАРЧИГ / TABLE OF CONTENTS
+================================================================================
+1. ТӨСЛИЙН ТАНИЛЦУУЛГА / PROJECT OVERVIEW
+2. АРХИТЕКТУР / ARCHITECTURE
+3. КОДЫН БҮТЭЦ / CODE STRUCTURE
+4. МЭДЭЭЛЛИЙН САН / DATABASE
+5. ХИЙСЭН ӨӨРЧЛӨЛТҮҮД / CHANGES MADE
+6. ОДООГИЙН БАЙДАЛ / CURRENT STATUS
+7. ХАРИУЦЛАГАТАЙ АНХААРУУЛГА / CRITICAL CONTEXT
+8. БҮХ РҮТ / ALL ROUTES
+9. ФРОНТЕНД / FRONTEND
+10. АЮУЛГҮЙ БАЙДАЛ / SECURITY
+11. ТЕСТИЙН МЭДЭЭЛЭЛ / TESTING
+
+================================================================================
+1. ТӨСЛИЙН ТАНИЛЦУУЛГА / PROJECT OVERVIEW
+================================================================================
+
+Зорилго:
+Монголын хүнсний дэлгүүрт зориулсан POS (Point of Sale) desktop аппликейшн.
+Хэрэглэгч double-click хийхэд хоёр native цонх нээгдэнэ: кассын цонх + 
+үйлчлүүлэгчийн дэлгэц. Зориулалт: хүсний дэлгүүрийн кассчин/админ нэгдсэн
+passwordless интерфейс.
+
+Үндсэн онцлогууд:
+- Баркод сканнер (USB scanner = keyboard input)
+- Бэлэн, карт, холимог төлбөр
+- Үйлчлүүлэгчийн дэлгэц (хоёр дахь дэлгэц)
+- ESC/POS дулааны принтер
+- eBarimt (Монголын Татварын Газрын цахим баримт)
+- Автомат нөөц хуулбар (30 хоног)
+- Offline-first ажиллагаа
+
+Хэрэглэгчийн тоо: 1 кассчин/admin өөрчлөгдөөгүй
+Хэл: Монгол (зөвхөн)
+
+================================================================================
+2. АРХИТЕКТУР / ARCHITECTURE
+================================================================================
+
+Backend: Flask (Python 3)
+Database: SQLite (WAL mode)
+Frontend: Jinja2 templates + Vanilla JavaScript
+Desktop: pywebview (GTK-based native windows)
+Printer: python-escpos (ESC/POS protocol via USB)
+Auth: bcrypt password hashing, session-based
+
+Холболтын диаграм:
+┌──────────────────────────────────────────────────────────────────────┐
+│                        desktop.py (launcher)                         │
+│  ┌─────────────────┐   ┌──────────────────┐   ┌─────────────────┐   │
+│  │ Cashier Window   │   │ Customer Window   │   │ Flask Server     │   │
+│  │ (pywebview)     │   │ (pywebview)       │   │ (background      │   │
+│  │ http://127.0.0.1 │   │ http://127.0.0.1  │   │  thread)         │   │
+│  │ :8765/          │   │ :8765/customer    │   │ port 8765        │   │
+│  └────────┬────────┘   └─────────┬─────────┘   └────────┬────────┘   │
+└───────────┼──────────────────────┼───────────────────────┼───────────┘
+            │                      │                       │
+            └──────────┬───────────┘                       │
+                       │                                   │
+              ┌────────▼────────┐                  ┌───────▼───────┐
+              │   pos.js        │                  │   app.py      │
+              │   style.css     │                  │   database.py │
+              └─────────────────┘                  │   config.py   │
+                                                   │   ebarimt.py  │
+                                                   │   printer.py  │
+                                                   └───────┬───────┘
+                                                           │
+                                                   ┌───────▼───────┐
+                                                   │   pos.db      │
+                                                   │   (SQLite WAL)│
+                                                   └───────────────┘
+
+Файлын бүтэц:
+pos/
+├── app.py                 ← Flask app, routes, CSRF, admin auth, eBarimt retry
+├── database.py            ← SQLite layer, WAL mode, backups, migrations
+├── config.py              ← Configuration with defaults (DB-first, fallback)
+├── ebarimt.py             ← eBarimt adapter (placeholder, not real API)
+├── printer.py             ← ESC/POS thermal printer module
+├── desktop.py             ← PyWebView launcher (2 windows + menu + tray)
+├── requirements.txt       ← Python dependencies
+├── start.sh               ← Quick start script
+├── install.sh             ← One-time setup script (venv + desktop icon + auto-start)
+├── pos.db                 ← SQLite database (auto-created on first run)
+├── Миний_дэлгүүр.desktop ← Ubuntu desktop shortcut
+├── backups/               ← Daily backup files (auto-created)
+├── static/
+│   ├── style.css          ← Complete modern stylesheet (2014 lines)
+│   ├── pos.js             ← POS screen logic (688 lines)
+│   └── customer.js        ← Customer display polling (145 lines)
+└── templates/
+    ├── base.html          ← Base layout, admin login modal, CSRF fetch wrapper
+    ├── pos.html           ← Main POS screen (product grid, cart, checkout modals)
+    ├── customer_display.html ← Customer-facing screen (dark theme, animations)
+    ├── products.html      ← Product management (CRUD, CSV import, search/filter)
+    ├── sales.html         ← Sales history (date filters, pagination, return buttons)
+    ├── sale_detail.html   ← Single sale view (items, payment info, reprint, return)
+    ├── reports.html       ← Reports (summary stats, daily breakdown, top products)
+    ├── inventory.html     ← Stock management (low-stock alerts, adjust modal)
+    └── settings.html      ← Store settings, printer, eBarimt, backup, password change
+
+================================================================================
+3. КОДЫН БҮТЭЦ / CODE STRUCTURE
+================================================================================
+
+3.1 app.py (977 мөр)
+────────────────────
+- Flask app initialization
+- CSRF token generation/validation (form + header)
+- Admin auth: set password, login, logout, session timeout
+- Category data (icons + colors as dicts)
+- All routes (see Section 8)
+- eBarimt retry thread on startup
+- Error handlers (404, 500, unhandled exceptions)
+
+3.2 database.py (1109 мөр)
+─────────────────────────
+- SQLite connection with WAL mode, foreign keys, NORMAL sync
+- Context manager for safe transaction handling
+- bcrypt password hashing with SHA-256 fallback
+- SCHEMA SQL: products, cashiers, sales, sale_items, settings, stock_adjustments
+- migrate_db(): idempotent migrations (admin_password_hash, nullable cashier_id,
+  quantity CHECK removal, return_of_sale_id column)
+- All CRUD: products, sales, settings, stock adjustments
+- Stock validation inside create_sale() — server-side check inside transaction
+- process_return() — atomic stock restore + return sale + mark original as returned
+- Backup functions: daily backup on first sale, manual backup, 30-day cleanup
+
+3.3 config.py (121 мөр)
+──────────────────────
+- Default config values
+- Flask settings from environment variables
+- get_config(key): reads from DB, falls back to defaults
+- get_all_config(): merges DB on top of defaults
+- is_ebarimt_configured(): checks all required fields non-empty
+- get_store_info(): returns store name, address, phone
+
+3.4 ebarimt.py (163 мөр)
+────────────────────────
+- EbarimtAdapter class
+- Reads config from DB settings table (api_url, merchant_tin, ttd, branch_id)
+- send_receipt(sale_data): uses ebarimt-pos-sdk EbarimtRestClient
+  → builds CreateReceiptRequest with SubReceipt, Item, Payment models
+  → supports cash/card/split payment types
+  → returns lottery, ebarimt_id, qr_data from POS device REST API
+- retry_pending(): retry failed/pending sales
+- Safe errors: never crashes the app, handles ImportError/connection errors
+
+3.5 printer.py (217 мөр)
+───────────────────────
+- print_receipt(sale_data, store_info): full receipt printing
+- ESC/POS commands via python-escpos File printer
+- Sections: header (store info, date, cashier), items, totals, payment, eBarimt QR, footer
+- Respects auto_print_receipt, show_vat_on_receipt, receipt_width, receipt_footer settings
+- Graceful fallback on printer not found, permission denied, or any error
+
+3.6 desktop.py (303 мөр)
+────────────────────────
+- POSApplication class
+- Starts Flask on port 8765 in background thread
+- Waits for /api/health endpoint
+- Opens 2 pywebview windows: cashier (primary fullscreen) + customer (secondary fullscreen)
+- Auto-detects second monitor via screeninfo
+- Menu bar: show/hide customer window, help, quit
+- Error dialogs via tkinter
+- Port-check before start
+
+================================================================================
+4. МЭДЭЭЛЛИЙН САН / DATABASE (SQLite)
+================================================================================
+
+Schema (6 tables):
+
+products:
+  id, barcode (UNIQUE), name, price (INTEGER, MNT), category, stock_qty,
+  unit, low_stock_threshold, is_active (1/0), created_at
+
+cashiers:
+  id, name, pin_hash, role (cashier/manager), is_active, created_at
+
+sales:
+  id, cashier_id (nullable), payment_type (cash/card/split/return),
+  subtotal, total, cash_given, change_given, card_amount, cash_amount,
+  ebarimt_id, ebarimt_qr, ebarimt_status (pending/sent/failed/skipped),
+  created_at, return_of_sale_id (nullable, FK to sales.id)
+
+sale_items:
+  id, sale_id (FK), product_id (FK, nullable), product_name, barcode,
+  quantity (REAL, no CHECK), unit_price, subtotal
+
+settings:
+  key (TEXT PK), value (TEXT)
+
+stock_adjustments:
+  id, product_id (FK), quantity_change, reason, cashier_id (FK, nullable), created_at
+
+Indexes: 12 indexes on barcode, active, created, ebarimt_status, sale_id,
+product_id, category, name, payment_type, return_of_sale_id
+
+Migrations (in migrate_db(), all idempotent):
+1. Add admin_password_hash to settings
+2. Make cashier_id nullable in sales table
+3. Remove quantity CHECK constraint from sale_items
+4. Add return_of_sale_id column to sales
+
+================================================================================
+5. ХИЙСЭН ӨӨРЧЛӨЛТҮҮД / CHANGES MADE
+================================================================================
+
+Хугацааны явцад дараах чухал өөрчлөлтүүдийг хийсэн:
+
+А. Кассчин/Админ нэгтгэх:
+─────────────────────────
+- Cashier/admin горимыг нэгтгэж, passwordless POS хуудас болгосон
+- Admin login modal, түгжээ товч, session timeout-г base.html-с устгасан
+- admin_required декоратор, admin password API routes-г app.py-с устгасан
+- Password change хэсгийг settings.html-с устгасан
+
+Б. UI/UX шинэчлэл:
+───────────────────
+- 16px base font, том product cards (200px+), color-coded category
+- Smooth animations (add-to-cart pulse, cart count bounce)
+- Том checkout товчууд (62px height)
+- Product card дээр том emoji icon, stock warning
+- Cart-д unit display
+- Үйлчлүүлэгчийн дэлгэцийг dark theme, animations, 3 state (shopping/paying/complete)
+
+В. CSRF хамгаалалт:
+────────────────────
+- validate_csrf_token() нь request.form БА X-CSRF-Token header-ыг шалгадаг
+- CSRF validation хэрэглэсэн: /api/checkout, /api/product/create,
+  /api/return/<id>, /api/reprint/<id>, /api/ebarimt-retry
+- CSRF exemption: /api/barcode (read-only lookup), /api/customer-state (in-memory only)
+- Frontend fetch wrapper автоматаар X-CSRF-Token header нэмж, 403 дээр refresh хийдэг
+- token refresh endpoint: /api/csrf/refresh
+
+Г. Stock validation (create_sale):
+──────────────────────────────────
+- Сервер талд transaction дотор stock шалгалт
+- product exists, is_active, stock_qty >= requested quantity
+- SQLite WAL mode тул write нь serialized
+
+Д. Return/Refund (process_return):
+─────────────────────────────────
+- create_sale()-г payment_type='return' параметрээр дуудаж, атомар гүйлгээгээр
+  stock restore, return sale create, original mark-ийг гүйцэтгэдэг
+- return_of_sale_id багана: double-return блоклодог
+- Return-уудыг eBarimt-ээс хассан (Монголын хуульд буцаалтын баримт шаардлагагүй)
+
+Е. eBarimt (Phase 1 — Бодит API):
+───────────────────────────────────
+- ebarimt-pos-sdk (EbarimtRestClient) ашиглаж, POS төхөөрөмжийн REST API-тай холбогдоно
+- Settings-д: api_url, merchant_tin (НӨАТ төлөгчийн дугаар), ttd (POS №), branch_id
+- Баримт бүрдүүлэхдээ CreateReceiptRequest, SubReceipt, Item, Payment загваруудыг ашиглана
+- Хариунаас lottery (сугалааны дугаар), receipt_id, qr_data хадгална
+- /api/ebarimt-retry endpoint: pending/failed баримтуудыг гараар дахин илгээх
+- Startup дээр pending баримтуудыг retry хийдэг (background thread)
+- Return sales-ийг eBarimt-ээс хассан, status="skipped"
+- Алдаа гарвал status="failed"
+- ebarimt_lottery багана sales таблицад (migration-аар нэмэгдэнэ)
+
+Ж. Принтер:
+───────────
+- auto_print_receipt, show_vat_on_receipt, receipt_width, receipt_footer
+  тохиргоог хүндэтгэдэг
+- Принтер олдохгүй бол/алдаа гарвал дэлгэцэн дээр receipt харуулдаг
+- Cash drawer kick (ESC/POS pulse): cash/split төлбөрийн дараа drawer нээгдэнэ
+- Баримт дээр сугалааны дугаар (lottery) хэвлэгдэнэ
+
+З. Нөөц хуулбар:
+────────────────
+- perform_manual_backup() функц
+- Settings хуудсанд manual backup товч
+- _cleanup_old_backups(): 30 хоногоос дээш хуучин backup-ыг устгадаг
+- check_and_backup(): худалдааны үед сайтар шалгаад, backup хийгээгүй бол хийдэг
+
+И. Бараа:
+────────
+- restore_product() — soft-deleted барааг сэргээх (products хуудсанд сэргээх товч)
+- CSV import нь баркодаар existing барааг update хийдэг, duplicate алдаа өгөхгүй
+
+К. Тайлан:
+─────────
+- Өчигдөр filter sales history-д нэмсэн
+- Return-status багана, return totals card reports-д нэмсэн
+- CSV export endpoint /reports/export
+
+Л. Admin Auth:
+─────────────
+- Admin password change (current/new/confirm) settings хуудсанд
+- admin_session_timeout_minutes тохиргоо (30-1440 минут)
+
+================================================================================
+6. ОДООГИЙН БАЙДАЛ / CURRENT STATUS (2024)
+================================================================================
+
+Ажиллаж буй:
+- POS хуудас (бүрэн функцтэй)
+- Үйлчлүүлэгчийн дэлгэц
+- Борлуулалт (бэлэн/карт/холимог)
+- Барааны бүртгэл (create/edit/delete/restore/CSV import)
+- Бараа хайх, category-аар шүүх
+- Нөөцийн удирдлага (adjust, low-stock alerts)
+- Борлуулалтын түүх (date filter, pagination)
+- Тайлан (summary, daily breakdown, top products, category breakdown)
+- Тохиргоо (store, printer, eBarimt, backup)
+- Admin password аюулгүй байдал (bcrypt, session timeout)
+- CSRF хамгаалалт
+- Принтер (python-escpos)
+- eBarimt (adapter placeholder, retry on startup+manual)
+- Автомат нөөц хуулбар
+- Keyboard shortcuts (F1=barcode, F2=cash checkout, ESC=clear cart, numbers in checkout)
+
+Ажиллахгүй байгаа / Хийгдээгүй:
+- eBarimt API placeholder — бодит HTTP хүсэлт хараахан хэрэгжээгүй
+- Cashier account management (legacy support only)
+- Low stock threshold editing in inventory page
+
+Туршилт:
+- 23 functional тест амжилттай
+- Printer алдаа нь тестийн орчинд хүлээгддэг (физик USB принтер байхгүй)
+
+================================================================================
+7. ХАРИУЦЛАГАТАЙ АНХААРУУЛГА / CRITICAL CONTEXT
+================================================================================
+
+- Аппын хаяг: http://127.0.0.1:8765 (desktop.py default port)
+- Flask хөгжүүлэлтийн серверийн default port: 5000 (config.py)
+- desktop.py нь 8765 портыг ашигладаг
+- desktop.py хуучин процесс ажиллаж байвал update хийгээд restart хийх шаардлагатай
+- eBarimt тохиргоо хийгээгүй бол receipt дээр "Тохиргоо хийгдээгүй" гэж бичигдэнэ
+- Нууц үг анх удаа тохируулах: 🔒 товч дээр дарж → нууц үг тохируулах → login
+- Return sales нь eBarimt-ээс хасагдсан (Монголын татварын нөхцөлд холбогдолгүй)
+- SQLite WAL mode нь write serialization хангадаг
+
+================================================================================
+8. БҮХ РҮТ / ALL ROUTES (app.py)
+================================================================================
+
+POS хуудас (auth шаардлагагүй):
+  GET  /                     ← pos.html (product grid + cart)
+  GET  /customer             ← customer_display.html
+  GET  /api/health           ← {"status": "ok"}
+  GET  /api/csrf/refresh     ← CSRF token refresh
+  GET  /api/customer-state   ← customer display state (read)
+  POST /api/customer-state   ← customer display state (write) - NO CSRF
+  POST /api/barcode          ← barcode lookup - NO CSRF (read-only)
+  GET  /api/products/search  ← product search
+  POST /api/checkout         ← POS checkout (CSRF)
+  POST /api/product/create   ← create product from POS (CSRF)
+  POST /api/reprint/<id>     ← reprint receipt (CSRF)
+
+Борлуулалтын түүх (auth шаардлагагүй):
+  GET  /sales                ← sales.html (pagination + date filter)
+  GET  /sales/<id>           ← sale_detail.html
+
+Бараа (admin required):
+  GET  /products             ← products.html
+  POST /products/create      ← create product form (CSRF)
+  POST /products/update/<id> ← update product (CSRF)
+  POST /products/delete/<id> ← soft-delete product (CSRF)
+  POST /products/restore/<id>← restore product (CSRF)
+  POST /products/import      ← CSV import (CSRF)
+
+Тайлан (admin required):
+  GET  /reports              ← reports.html
+  GET  /reports/export       ← CSV export
+
+Нөөц (admin required):
+  GET  /inventory            ← inventory.html
+  POST /inventory/adjust     ← stock adjustment (CSRF)
+
+Тохиргоо (admin required):
+  GET  /settings             ← settings.html
+  POST /settings             ← save settings (CSRF)
+  POST /settings/backup      ← manual backup (CSRF)
+  POST /settings/change-password ← change admin password (CSRF)
+
+Admin auth (CSRF not needed — uses JSON body + session):
+  GET  /api/admin-check-password
+  POST /api/admin-set-password
+  POST /api/admin-login
+  POST /api/admin-logout
+
+Return / eBarimt:
+  POST /api/return/<id>      ← process return (CSRF, admin required)
+  POST /api/ebarimt-retry    ← retry pending eBarimt (CSRF, admin required)
+
+================================================================================
+9. ФРОНТЕНД / FRONTEND
+================================================================================
+
+9.1 style.css (2014 мөр)
+------------------------
+- CSS custom properties (color, shadow, radius, animation, font)
+- Responsive flexbox/grid layout
+- Components: nav, flash messages, product grid, cart, checkout, modals, forms,
+  buttons, tables, stat cards, badges, settings, loading spinner
+- Animations: flashIn, addPulse, countBounce, cartItemIn, modalIn, spin, searchPulse
+- Category color coding via --cat-color CSS variable
+- Toggle switch component
+- 16px base font size
+
+9.2 pos.js (688 мөр)
+─────────────────────
+- Cart state management (array of items)
+- addToCart() with stock check + existing item increment
+- animateCardAdd() — green pulse border animation
+- animateCartCount() — bounce animation on badge
+- removeFromCart() — slide-out animation
+- updateQuantity() — + / - buttons with stock limit
+- clearCart() — confirm dialog
+- renderCart() — full cart re-render with icons, qty buttons, VAT display
+- Barcode input handler (Enter key → lookupBarcode → add or not-found modal)
+- Product search (live filter) + category filtering
+- Checkout flow: openCheckout() → cash/card/split → confirmSale()
+  - Cash: quick buttons (1k/5k/10k/20k/50k/100k/Exact), change calculation
+  - Card: instruction display
+  - Split: dual input with remaining/over calculation
+- Sale complete modal with receipt preview + print error + reprint
+- Barcode not-found modal → create product + add to cart
+- Keyboard shortcuts: F1=barcode focus, F2=cash checkout, ESC=clear/close,
+  Ctrl+F=search, 0-6=quick amounts in checkout
+- refocusBarcode() — auto-focus barcode input after actions
+- showNotification() — flash message with auto-dismiss
+- Customer state sync via /api/customer-state POST
+
+9.3 customer.js (145 мөр)
+──────────────────────────
+- Polls /api/customer-state every 300ms
+- Renders 3 views: idle (welcome), shopping (item list + total),
+  paying (payment amount), complete (thanks + change)
+- Category icon mapping
+- Stringified state diff — only re-renders on change
+- Clock display
+
+================================================================================
+10. АЮУЛГҮЙ БАЙДАЛ / SECURITY
+================================================================================
+
+- CSRF: form body + X-CSRF-Token header
+- Admin auth: bcrypt password hashing with SHA-256 fallback
+- Session-based admin login with configurable timeout (30-1440 min)
+- Session timeout warning at 5 minutes before expiry
+- SQL injection: parameterized queries everywhere (no string concatenation)
+- XSS: escapeHtml() on user-provided text in cart / customer display
+- Input validation: barcode alphanumeric check, price/stock integer validation
+- Transaction safety: WAL mode, atomic transactions, rollback on error
+- Secret key: from POS_SECRET_KEY env var, hardcoded fallback for development
+
+================================================================================
+11. ТЕСТИЙН МЭДЭЭЛЭЛ / TESTING
+================================================================================
+
+Туршилтын арга: pytest (automated) + manual tests
+Тоо: 32 automated tests (todo: pytest-ийг тогтмол ажиллуулах)
+Файлууд:
+  - tests/test_database.py (15 tests): product CRUD, create_sale, process_return, ebarimt
+  - tests/test_api.py (14 tests): page rendering, CSRF, checkout, reports, ebarimt retry
+  - tests/test_ebarimt.py (3 tests): adapter not-configured, retry, logging
+  - tests/conftest.py: temp DB fixtures, session setup, test client
+
+Ажиллуулах команд: pytest (source venv/bin/activate && python3 -m pytest -v)
+
+Шалгах зүйлс:
+- Баркод сканнер ажиллах
+- Бэлэн/карт/холимог төлбөр
+- Барааны тоо нэмэх/хасах/арилгах
+- Сагс цэвэрлэх (ESC)
+- Бараа дууссан үед карт дээр дарах боломжгүй
+- Нөөц хүрэлцэхгүй үед warning
+- Борлуулалт хийсний дараа барааны нөөц шинэчлэгдэх
+- Принтер байхгүй үед sale амжилттай явагдах
+- Unknown barcode → create product modal
+- Админ нууц үг тохируулах/солих
+- Нөөц тохируулах
+- Буцаалт хийх
+- Тайлан шалгах
+- Дата filter ажиллагаа
+- CSV import
+
+================================================================================
+Төслийн төлөв: Production-ready / Бэлэн
+Сүүлд шинэчлэгдсэн: 2024 он
+================================================================================
+

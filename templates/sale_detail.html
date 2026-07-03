@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Борлуулалт #{{ sale.id }}{% endblock %}
+
+{% block head %}
+<script>
+var CATEGORY_ICONS = {{ CATEGORY_ICONS | tojson }};
+function getCategoryIcon(cat) {
+    return CATEGORY_ICONS[cat] || CATEGORY_ICONS['Бусад'];
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">📋 Борлуулалт #{{ sale.id }}</h1>
+    <div class="page-actions">
+        <button class="btn btn-secondary" onclick="reprintSale({{ sale.id }})">🖨 Дахин хэвлэх</button>
+        <button class="btn btn-primary" onclick="reprintWithEbarimt({{ sale.id }})">📨 eBarimt дахин илгээх</button>
+        {% if sale.payment_type != 'return' %}
+        <button class="btn btn-warning" onclick="confirmReturnFromDetail({{ sale.id }}, {{ sale.total }})">↩ Буцаалт</button>
+        {% endif %}
+        <a href="{{ url_for('sales_page') }}" class="btn btn-secondary">← Буцах</a>
+    </div>
+</div>
+
+<div class="detail-grid">
+    <div class="detail-card">
+        <div class="detail-card-header">
+            {% if sale.payment_type == 'return' %}
+            <span class="payment-badge return-badge">↩ Буцаалт</span>
+            {% elif sale.payment_type == 'cash' %}
+            <span class="payment-badge cash">💵 Бэлэн</span>
+            {% elif sale.payment_type == 'card' %}
+            <span class="payment-badge card">💳 Карт</span>
+            {% else %}
+            <span class="payment-badge split">💵💳 Холимог</span>
+            {% endif %}
+            Төлбөрийн мэдээлэл
+        </div>
+        <div class="detail-card-body">
+            <div class="detail-row">
+                <span class="detail-label">Огноо:</span>
+                <span class="detail-value">{{ sale.created_at }}</span>
+            </div>
+            {% if sale.payment_type == 'cash' %}
+            <div class="detail-row">
+                <span class="detail-label">Өгсөн мөнгө:</span>
+                <span class="detail-value">{{ "{:,.0f}".format(sale.cash_given) }} ₮</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Буцаалт:</span>
+                <span class="detail-value text-success">{{ "{:,.0f}".format(sale.change_given) }} ₮</span>
+            </div>
+            {% elif sale.payment_type == 'card' %}
+            <div class="detail-row">
+                <span class="detail-label">Картын дүн:</span>
+                <span class="detail-value">{{ "{:,.0f}".format(sale.card_amount or sale.total) }} ₮</span>
+            </div>
+            {% elif sale.payment_type == 'split' %}
+            <div class="detail-row">
+                <span class="detail-label">Картын дүн:</span>
+                <span class="detail-value">{{ "{:,.0f}".format(sale.card_amount) }} ₮</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Бэлэн дүн:</span>
+                <span class="detail-value">{{ "{:,.0f}".format(sale.cash_amount) }} ₮</span>
+            </div>
+            {% endif %}
+            <div class="detail-row">
+                <span class="detail-label">eBarimt:</span>
+                <span class="detail-value">
+                    <span class="status-badge status-{{ sale.ebarimt_status }}">{{ sale.ebarimt_status }}</span>
+                    {% if sale.ebarimt_id %}
+                    <br><small class="text-muted">ID: {{ sale.ebarimt_id }}</small>
+                    {% endif %}
+                    {% if sale.ebarimt_lottery %}
+                    <br><small class="text-muted">🎰 Сугалаа: {{ sale.ebarimt_lottery }}</small>
+                    {% endif %}
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <div class="detail-card" style="grid-column: span 2;">
+        <div class="detail-card-header">
+            🛒 Барааны жагсаалт
+        </div>
+        <div class="detail-card-body" style="padding:0;">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Баркод</th>
+                            <th>Нэр</th>
+                            <th class="text-right">Тоо</th>
+                            <th class="text-right">Үнэ (₮)</th>
+                            <th class="text-right">Дүн (₮)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in sale['items'] %}
+                        <tr>
+                            <td style="text-align:center; font-size:1.2rem;">{{ CATEGORY_ICONS.get(item.category if item.category else 'Бусад', '📦') }}</td>
+                            <td><code>{{ item.barcode }}</code></td>
+                            <td>{{ item.product_name }}</td>
+                            <td class="text-right">{{ item.quantity }}</td>
+                            <td class="text-right">{{ "{:,.0f}".format(item.unit_price) }}</td>
+                            <td class="text-right text-bold">{{ "{:,.0f}".format(item.subtotal) }} ₮</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="5" class="text-right text-bold">Нийт:</td>
+                            <td class="text-right text-bold" style="font-size:1.1rem; color:#1B5E20;">
+                                {{ "{:,.0f}".format(sale.total) }} ₮
+                            </td>
+                        </tr>
+                        <tr>
+                            <td colspan="5" class="text-right text-muted">НӨАТ (10%):</td>
+                            <td class="text-right text-muted">
+                                {{ "{:,.0f}".format(sale.total // 11) }} ₮
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function reprintSale(saleId) {
+    if (!confirm('Баримтыг дахин хэвлэх үү?')) return;
+    fetch('/api/reprint/' + saleId, { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                alert('Баримт хэвлэгдлээ!');
+            } else {
+                alert('Хэвлэх алдаа: ' + (data.error || 'Тодорхойгүй'));
+            }
+        })
+        .catch(function() { alert('Сүлжээний алдаа'); });
+}
+
+function reprintWithEbarimt(saleId) {
+    if (!confirm('Баримтыг дахин хэвлэж, eBarimt дахин илгээх үү?')) return;
+    fetch('/api/reprint/' + saleId, { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                var msg = 'Баримт хэвлэгдлээ!';
+                if (data.ebarimt_retried) {
+                    msg += data.ebarimt_success ? ' eBarimt илгээгдлээ.' : ' eBarimt илгээгдсэнгүй.';
+                }
+                alert(msg);
+                location.reload();
+            } else {
+                alert('Алдаа: ' + (data.error || 'Тодорхойгүй'));
+            }
+        })
+        .catch(function() { alert('Сүлжээний алдаа'); });
+}
+
+function confirmReturnFromDetail(saleId, total) {
+    if (!confirm('Борлуулалт #' + saleId + '-ыг буцаах уу?\nБуцаалтын дүн: ' + Number(total).toLocaleString('mn-MN') + ' ₮')) {
+        return;
+    }
+    fetch('/api/return/' + saleId, { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                alert('Буцаалт амжилттай хийгдлээ!');
+                location.href = '{{ url_for("sales_page") }}';
+            } else {
+                alert(data.error || 'Буцаалт амжилтгүй');
+            }
+        })
+        .catch(function() {
+            alert('Сүлжээний алдаа');
+        });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,501 @@
+{% extends "base.html" %}
+{% block title %}Тохиргоо{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">⚙️ Тохиргоо</h1>
+</div>
+
+<form method="POST" action="{{ url_for('settings_page') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="settings-card">
+        <div class="settings-card-title">
+            <span class="settings-card-icon">🏪</span> Дэлгүүрийн мэдээлэл
+        </div>
+        <div class="settings-section">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="store_name">Дэлгүүрийн нэр:</label>
+                    <input type="text" id="store_name" name="store_name" class="form-control" value="{{ settings.store_name }}">
+                </div>
+                <div class="form-group">
+                    <label for="store_phone">Утасны дугаар:</label>
+                    <input type="text" id="store_phone" name="store_phone" class="form-control" value="{{ settings.store_phone }}">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="store_address">Хаяг:</label>
+                <input type="text" id="store_address" name="store_address" class="form-control" value="{{ settings.store_address }}">
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-card">
+        <div class="settings-card-title">
+            <span class="settings-card-icon">💳</span> Төлбөрийн тохиргоо
+        </div>
+        <div class="settings-section">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="default_payment_type">Анхны төлбөрийн төрөл:</label>
+                    <select id="default_payment_type" name="default_payment_type" class="form-control">
+                        <option value="cash" {% if settings.get('default_payment_type', 'cash') == 'cash' %}selected{% endif %}>💵 Бэлэн</option>
+                        <option value="card" {% if settings.get('default_payment_type', 'cash') == 'card' %}selected{% endif %}>💳 Карт</option>
+                        <option value="split" {% if settings.get('default_payment_type', 'cash') == 'split' %}selected{% endif %}>🔀 Холимог</option>
+                        <option value="qr" {% if settings.get('default_payment_type', 'cash') == 'qr' %}selected{% endif %}>📱 QR</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="qr_payment_image">QR төлбөрийн зураг (URL):</label>
+                <input type="text" id="qr_payment_image" name="qr_payment_image" class="form-control" value="{{ settings.get('qr_payment_image', '') }}" placeholder="https://... эсвэл /static/uploads/...">
+                <small class="text-muted">Банкны QR код эсвэл урилгын зургийн URL оруулна уу.</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-card">
+        <div class="settings-card-title">
+            <span class="settings-card-icon">🖨</span> Баримт тохиргоо
+        </div>
+        <div class="settings-section">
+            <div class="form-group">
+                <label for="printer_port">Хэвлэгчийн порт:</label>
+                <input type="text" id="printer_port" name="printer_port" class="form-control" value="{{ settings.printer_port }}">
+                <small class="text-muted">Ихэвчлэн: /dev/usb/lp0. Шалгах: <code>ls /dev/usb/lp*</code></small>
+            </div>
+            <div class="form-group">
+                <label for="receipt_footer">Баримтын хөл хэсэг:</label>
+                <input type="text" id="receipt_footer" name="receipt_footer" class="form-control" value="{{ settings.receipt_footer }}">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <span class="form-label-text">Баримт автомат хэвлэх:</span>
+                    <label class="toggle-label">
+                        <span class="toggle-switch">
+                            <input type="checkbox" name="auto_print_receipt" value="true"
+                                   {% if settings.get('auto_print_receipt', 'true') == 'true' %}checked{% endif %}>
+                            <span class="toggle-slider"></span>
+                        </span>
+                        <span class="toggle-text">Борлуулалтын дараа автомат хэвлэх</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <span class="form-label-text">НӨАТ-ыг баримтанд харуулах:</span>
+                    <label class="toggle-label">
+                        <span class="toggle-switch">
+                            <input type="checkbox" name="show_vat_on_receipt" value="true"
+                                   {% if settings.get('show_vat_on_receipt', 'false') == 'true' %}checked{% endif %}>
+                            <span class="toggle-slider"></span>
+                        </span>
+                        <span class="toggle-text">НӨАТ-ыг тусад нь харуулах</span>
+                    </label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="receipt_width">Баримтын өргөн (тэмдэгт/мөр):</label>
+                <input type="number" id="receipt_width" name="receipt_width" class="form-control" value="{{ settings.get('receipt_width', '32') }}" min="24" max="48">
+                <small class="text-muted">Ихэвчлэн 32. Өргөн хэвлэгчид 40-48.</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-card">
+        <div class="settings-card-title">
+            <span class="settings-card-icon">🖥</span> Дэлгэцийн тохиргоо
+        </div>
+        <div class="settings-section">
+            <div class="form-row">
+                <div class="form-group">
+                    <span class="form-label-text">Нөөцийн анхааруулга:</span>
+                    <label class="toggle-label">
+                        <span class="toggle-switch">
+                            <input type="checkbox" name="show_stock_warnings" value="true"
+                                   {% if settings.get('show_stock_warnings', 'true') == 'true' %}checked{% endif %}>
+                            <span class="toggle-slider"></span>
+                        </span>
+                        <span class="toggle-text">Бага/дууссан барааг тэмдэглэх</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <span class="form-label-text">Хямдрал:</span>
+                    <label class="toggle-label">
+                        <span class="toggle-switch">
+                            <input type="checkbox" name="discounts_enabled" value="true"
+                                   {% if settings.get('discounts_enabled', 'false') == 'true' %}checked{% endif %}>
+                            <span class="toggle-slider"></span>
+                        </span>
+                        <span class="toggle-text">Хямдрал идэвхжүүлэх</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="theme">Өнгөний горим:</label>
+                    <select id="theme" name="theme" class="form-control" onchange="applyTheme(this.value)">
+                        <option value="auto" {% if settings.get('theme', 'auto') == 'auto' %}selected{% endif %}>🌓 Авто</option>
+                        <option value="light" {% if settings.get('theme', 'auto') == 'light' %}selected{% endif %}>☀️ Гэрэлтэй</option>
+                        <option value="dark" {% if settings.get('theme', 'auto') == 'dark' %}selected{% endif %}>🌙 Бараан</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="customer_display_timeout">Idle хугацаа (секунд):</label>
+                    <input type="number" id="customer_display_timeout" name="customer_display_timeout" class="form-control" value="{{ settings.get('customer_display_timeout', '10') }}" min="5" max="120">
+                </div>
+                <div class="form-group">
+                    <label for="customer_idle_message">Idle мессеж:</label>
+                    <input type="text" id="customer_idle_message" name="customer_idle_message" class="form-control" value="{{ settings.get('customer_idle_message', 'Тавтай морилно уу') }}">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-card">
+        <div class="settings-card-title">
+            <span class="settings-card-icon">🔒</span> Хамгаалалт ба систем
+        </div>
+        <div class="settings-section">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="admin_session_timeout_minutes">Админ сессын хугацаа (минут):</label>
+                    <input type="number" id="admin_session_timeout_minutes" name="admin_session_timeout_minutes" class="form-control" value="{{ settings.get('admin_session_timeout_minutes', '480') }}" min="10" max="1440">
+                    <small class="text-muted">Админ автомат гарах хугацаа. Анхдагч 480 (8 цаг).</small>
+                </div>
+                <div class="form-group">
+                    <label for="return_window_days">Буцаалт хийх хоног:</label>
+                    <input type="number" id="return_window_days" name="return_window_days" class="form-control" value="{{ settings.get('return_window_days', '30') }}" min="1" max="365">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="backup_retention_days">Нөөц хадгалах хоног:</label>
+                    <input type="number" id="backup_retention_days" name="backup_retention_days" class="form-control" value="{{ settings.get('backup_retention_days', '30') }}" min="7" max="365">
+                    <small class="text-muted">Энэ хугацаанаас өмнөх нөөц файлууд устгагдана.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-card">
+        <div class="settings-card-title">
+            <span class="settings-card-icon">🗄</span> Мэдээллийн сан
+        </div>
+        <div class="settings-section">
+            <div class="detail-row">
+                <span class="detail-label">Сүүлийн нөөц хуулбар:</span>
+                <span class="detail-value"><strong>{{ settings.last_backup_date or 'Хийгдээгүй' }}</strong></span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Нөөц хуулбарын байрлал:</span>
+                <span class="detail-value"><code>backups/</code></span>
+            </div>
+            <div style="margin-top:12px;">
+                <button type="submit" name="manual_backup" value="1" class="btn btn-secondary" formaction="{{ url_for('settings_manual_backup') }}">
+                    📁 Одоо нөөцлөх
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <details class="advanced-section">
+        <summary><span class="settings-card-icon">🧾</span> eBarimt тохиргоо
+            {% if ebarimt_configured %}
+            <span class="status-badge status-sent">Идэвхтэй</span>
+            {% else %}
+            <span class="status-badge status-pending">Тохиргоо хийгдээгүй</span>
+            {% endif %}
+        </summary>
+        <div>
+            <p class="text-muted mb-16">
+                eBarimt — Монголын Татварын Газрын цахим баримтын систем.
+                POS төхөөрөмжийнхөө REST API хаяг, НӨАТ төлөгчийн дугаар,
+                салбар, TTD мэдээллийг оруулна уу.
+            </p>
+            <div class="form-group">
+                <label for="ebarimt_api_url">POS төхөөрөмжийн API URL:</label>
+                <input type="text" id="ebarimt_api_url" name="ebarimt_api_url" class="form-control" value="{{ settings.ebarimt_api_url }}" placeholder="http://192.168.1.100:8080">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="ebarimt_merchant_tin">НӨАТ төлөгчийн дугаар (TIN):</label>
+                    <input type="text" id="ebarimt_merchant_tin" name="ebarimt_merchant_tin" class="form-control" value="{{ settings.ebarimt_merchant_tin }}" placeholder="0000000000">
+                </div>
+                <div class="form-group">
+                    <label for="ebarimt_ttd">TTD (POS №):</label>
+                    <input type="text" id="ebarimt_ttd" name="ebarimt_ttd" class="form-control" value="{{ settings.ebarimt_ttd }}" placeholder="TTD дугаар">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="ebarimt_branch_id">Салбарын ID (branch_no):</label>
+                <input type="text" id="ebarimt_branch_id" name="ebarimt_branch_id" class="form-control" value="{{ settings.ebarimt_branch_id }}" placeholder="Салбарын ID">
+            </div>
+            {% if ebarimt_configured %}
+            <div style="margin-top:12px;">
+                <button type="button" class="btn btn-primary" onclick="retryEbarimt()">
+                    🔄 Хүлээгдэж буй баримтуудыг илгээх
+                </button>
+                <span id="ebarimtRetryStatus" style="margin-left:12px; font-weight:600;"></span>
+            </div>
+            {% endif %}
+    </details>
+
+    <details class="advanced-section">
+        <summary><span class="settings-card-icon">💳</span> PAX A930 Терминал тохиргоо
+            {% if terminal_configured %}
+            <span class="status-badge status-sent">Идэвхтэй</span>
+            {% else %}
+            <span class="status-badge status-pending">Тохиргоо хийгдээгүй</span>
+            {% endif %}
+        </summary>
+        <div>
+            <p class="text-muted mb-16">
+                PAX A930 болон бусад TCP/IP сүлжээний төлбөрийн терминалын холболтын тохиргоо.
+                Терминалын TCP Server режимийг идэвхжүүлээд, дотоод сүлжээний IP хаягийг оруулна уу.
+            </p>
+            <div class="alert alert-info" style="background:var(--primary-bg); padding:10px 14px; border-radius:10px; margin-bottom:14px; font-size:0.85rem; line-height:1.5;">
+                <strong>⚠️ PAX A930 холбох заавар:</strong><br>
+                1. PAX A930 дээрээ QuickPOS → Тохиргоо → TCP Server-ийг <strong>ON</strong> болгоно<br>
+                2. PAX-ны IP хаягийг энд бичнэ (PAX дээр: Тохиргоо → Сүлжээ → Wi-Fi/LAN)<br>
+                3. Порт: <strong>10009</strong> (стандарт, өөрчлөх шаардлагагүй)<br>
+                4. POS компьютер болон PAX <strong>нэг дотоод сүлжээнд</strong> холбогдсон эсэхийг шалгана уу<br>
+                5. Доорх "<strong>Холболт шалгах</strong>" товчоор холболтоо баталгаажуулна уу
+            </div>
+            <div class="form-group">
+                <span class="form-label-text">Төлбөрийн терминал идэвхжүүлэх:</span>
+                <label class="toggle-label">
+                    <span class="toggle-switch">
+                        <input type="checkbox" name="terminal_enabled" value="true"
+                               {% if settings.get('terminal_enabled', 'false') == 'true' %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </span>
+                    <span class="toggle-text">Төлбөрийн терминалын интеграцыг ашиглах</span>
+                </label>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="terminal_ip">Терминалын IP хаяг:</label>
+                    <input type="text" id="terminal_ip" name="terminal_ip" class="form-control" value="{{ settings.terminal_ip or '' }}" placeholder="192.168.1.150">
+                </div>
+                <div class="form-group">
+                    <label for="terminal_port">Терминалын порт:</label>
+                    <input type="number" id="terminal_port" name="terminal_port" class="form-control" value="{{ settings.terminal_port or '10009' }}" placeholder="10009">
+                </div>
+            </div>
+            <div style="margin-top:12px;">
+                <button type="button" class="btn btn-primary" onclick="testTerminal()">
+                    ⚡ Холболт шалгах
+                </button>
+                <span id="terminalTestStatus" style="margin-left:12px; font-weight:600;"></span>
+            </div>
+        </div>
+    </details>
+
+    <details class="advanced-section">
+        <summary><span class="settings-card-icon">📱</span> QPay тохиргоо
+            {% if qpay_configured %}
+            <span class="status-badge status-sent">Идэвхтэй</span>
+            {% else %}
+            <span class="status-badge status-pending">Тохиргоо хийгдээгүй</span>
+            {% endif %}
+        </summary>
+        <div>
+            <p class="text-muted mb-16">
+                QPay — Монголын QR төлбөрийн систем. Merchant дэлгүүрийн ID,
+                хэрэглэгч, нууц үгээ оруулна уу.
+            </p>
+            <div class="form-group">
+                <span class="form-label-text">QPay идэвхжүүлэх:</span>
+                <label class="toggle-label">
+                    <span class="toggle-switch">
+                        <input type="checkbox" name="qpay_enabled" value="true"
+                               {% if settings.get('qpay_enabled', 'false') == 'true' %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </span>
+                    <span class="toggle-text">QPay QR төлбөрийг ашиглах</span>
+                </label>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="qpay_client_id">Client ID:</label>
+                    <input type="text" id="qpay_client_id" name="qpay_client_id" class="form-control"
+                           value="{{ settings.get('qpay_client_id', '') }}" placeholder="QPay Client ID">
+                </div>
+                <div class="form-group">
+                    <label for="qpay_client_secret">Client Secret:</label>
+                    <input type="password" id="qpay_client_secret" name="qpay_client_secret" class="form-control"
+                           value="{{ settings.get('qpay_client_secret', '') }}" placeholder="QPay Client Secret">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="qpay_base_url">API URL:</label>
+                <select id="qpay_base_url" name="qpay_base_url" class="form-control">
+                    <option value="https://merchant.qpay.mn/v2"
+                            {% if settings.get('qpay_base_url', 'https://merchant.qpay.mn/v2') == 'https://merchant.qpay.mn/v2' %}selected{% endif %}>
+                        🏭 Бодит (merchant.qpay.mn/v2)
+                    </option>
+                    <option value="https://sandbox.qpay.mn/v2"
+                            {% if settings.get('qpay_base_url', 'https://merchant.qpay.mn/v2') == 'https://sandbox.qpay.mn/v2' %}selected{% endif %}>
+                        🧪 Сандал (sandbox.qpay.mn/v2)
+                    </option>
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <span class="form-label-text">Хэсэгчилсэн төлбөр зөвшөөрөх:</span>
+                    <label class="toggle-label">
+                        <span class="toggle-switch">
+                            <input type="checkbox" name="qpay_allow_partial" value="true"
+                                   {% if settings.get('qpay_allow_partial', 'false') == 'true' %}checked{% endif %}>
+                            <span class="toggle-slider"></span>
+                        </span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <span class="form-label-text">Илүү төлбөр зөвшөөрөх:</span>
+                    <label class="toggle-label">
+                        <span class="toggle-switch">
+                            <input type="checkbox" name="qpay_allow_exceed" value="true"
+                                   {% if settings.get('qpay_allow_exceed', 'false') == 'true' %}checked{% endif %}>
+                            <span class="toggle-slider"></span>
+                        </span>
+                    </label>
+                </div>
+            </div>
+        </div>
+    </details>
+
+    <div class="settings-card">
+        <div class="settings-card-title">
+            <span class="settings-card-icon">🔐</span> Админ PIN код
+        </div>
+        <div class="settings-section">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Одоогийн PIN:</label>
+                    <input type="password" id="currentPin" class="form-control" maxlength="4" inputmode="numeric" pattern="[0-9]*" placeholder="••••" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label>Шинэ PIN:</label>
+                    <input type="password" id="newPin" class="form-control" maxlength="4" inputmode="numeric" pattern="[0-9]*" placeholder="••••" autocomplete="off">
+                </div>
+            </div>
+            <button type="button" class="btn btn-warning" onclick="changePin()">🔒 PIN код солих</button>
+            <span id="pinChangeStatus" style="margin-left:12px; font-weight:600;"></span>
+        </div>
+    </div>
+
+    <div class="form-footer">
+        <button type="submit" class="btn btn-primary btn-save">
+            ✓ Тохиргоо хадгалах
+        </button>
+    </div>
+</form>
+
+<script>
+function applyTheme(value) {
+    var root = document.documentElement;
+    root.setAttribute('data-theme', value);
+    root.classList.remove('force-dark', 'force-light');
+    if (value === 'dark') root.classList.add('force-dark');
+    else if (value === 'light') root.classList.add('force-light');
+}
+
+function changePin() {
+    var current = document.getElementById('currentPin').value.trim();
+    var newPin = document.getElementById('newPin').value.trim();
+    var statusEl = document.getElementById('pinChangeStatus');
+
+    if (!current || !newPin) {
+        statusEl.textContent = 'Хоёр талбарыг бөглөнө үү';
+        statusEl.style.color = 'var(--warning)';
+        return;
+    }
+    if (!/^\d{4}$/.test(newPin)) {
+        statusEl.textContent = 'Шинэ PIN 4 оронтой тоо байх ёстой';
+        statusEl.style.color = 'var(--error)';
+        return;
+    }
+
+    statusEl.textContent = '⏳ Шалгаж байна...';
+    statusEl.style.color = 'var(--text-secondary)';
+
+    fetch('/admin/change-pin', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ current_pin: current, new_pin: newPin })
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+          if (data.success) {
+              statusEl.textContent = '✓ PIN код солигдлоо';
+              statusEl.style.color = 'var(--primary)';
+              document.getElementById('currentPin').value = '';
+              document.getElementById('newPin').value = '';
+              if (data.redirect) {
+                  setTimeout(function() { window.location.href = data.redirect; }, 1500);
+              }
+          } else {
+              statusEl.textContent = '✕ ' + (data.error || 'Алдаа');
+              statusEl.style.color = 'var(--error)';
+          }
+      }).catch(function() {
+          statusEl.textContent = '✕ Сүлжээний алдаа';
+          statusEl.style.color = 'var(--error)';
+      });
+}
+
+function testTerminal() {
+    var statusEl = document.getElementById('terminalTestStatus');
+    statusEl.textContent = '⏳ Холболтыг шалгаж байна...';
+    statusEl.style.color = 'var(--text-secondary)';
+
+    var csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    fetch('/api/terminal/test', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrfToken }
+    }).then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                statusEl.textContent = '✓ ' + (data.message || 'Холболт амжилттай');
+                statusEl.style.color = 'var(--primary)';
+            } else {
+                statusEl.textContent = '✕ ' + (data.error || 'Алдаа');
+                statusEl.style.color = 'var(--error)';
+            }
+        })
+        .catch(function() {
+            statusEl.textContent = '✕ Сүлжээний алдаа';
+            statusEl.style.color = 'var(--error)';
+        });
+}
+</script>
+{% if ebarimt_configured %}
+<script>
+function retryEbarimt() {
+    var statusEl = document.getElementById('ebarimtRetryStatus');
+    statusEl.textContent = '⏳ Илгээж байна...';
+    statusEl.style.color = 'var(--text-secondary)';
+
+    fetch('/api/ebarimt-retry', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                statusEl.textContent = '✓ ' + (data.message || data.sent + ' амжилттай');
+                statusEl.style.color = 'var(--primary)';
+            } else {
+                statusEl.textContent = '✕ ' + (data.error || 'Алдаа');
+                statusEl.style.color = 'var(--error)';
+            }
+        })
+        .catch(function() {
+            statusEl.textContent = '✕ Сүлжээний алдаа';
+            statusEl.style.color = 'var(--error)';
+        });
+}
+</script>
+{% endif %}
+{% endblock %}

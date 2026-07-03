@@ -1,0 +1,20 @@
+Task: Install a Mercury/TP-Link AIC8800DC WiFi dongle driver on this Linux Mint XFCE computer.
+
+Setup file: mercury-wifi-installer.tar.gz (522KB) — you'll need to get this file. Options:
+  - Download from github.com/Kiborgik/aic8800dc-linux-patched (https://github.com/Kiborgik/aic8800dc-linux-patched) and apply patches, OR
+  - The user has the file on a USB stick — copy it to /tmp/ then:
+
+cd /tmp
+tar xzf mercury-wifi-installer.tar.gz
+cd mercury-wifi-installer
+sudo ./install.sh
+
+The script will:
+1. Install build tools (build-essential, linux-headers, eject)
+2. Fix the interface check in the source
+3. Build the driver from source
+4. Install firmware + modules
+5. Set up usb_modeswitch + udev rule for auto mode-switching
+6. Configure auto-load on boot
+
+After install, the dongle will work like built-in WiFi — plug it in, it auto-switches from storage to WiFi mode, driver loads, and it appears in the system tray.

@@ -1,0 +1,36 @@
+[Unit]
+Description=Миний дэлгүүр POS System (Linux Mint XFCE)
+After=network.target graphical.target
+Wants=graphical.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=pos
+Group=pos
+WorkingDirectory=/opt/pos
+Environment=POS_PORT=8765
+Environment=POS_DB_PATH=/opt/pos/pos.db
+Environment=PYTHONUNBUFFERED=1
+Environment=DISPLAY=:0
+# Mint: uses mint/desktop.py with waitress WSGI (4x lower CPU than Flask dev server)
+ExecStartPre=/bin/sleep 3
+ExecStart=/opt/pos/venv/bin/python3 /opt/pos/mint/desktop.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/opt/pos/logs/stdout.log
+StandardError=append:/opt/pos/logs/stderr.log
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/pos/logs /opt/pos/backups /opt/pos/static/uploads /opt/pos/data
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=graphical.target

@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements-dev.txt
+      - run: pip install pip-audit
+      - run: pip-audit --audit-format json | python3 -c "import sys,json; d=json.load(sys.stdin); n=len(d.get('dependencies',[])); v=sum(1 for x in d.get('dependencies',[]) if x.get('vulns')); print(f'{n} deps, {v} vulns'); sys.exit(1 if v>0 else 0)"
+      - run: python -m pytest tests/ -v --cov --cov-report=xml
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t pos:test .
+      - run: |
+          docker run -d --name pos-test -p 8765:8765 pos:test
+          sleep 5
+          curl -f http://localhost:8765/api/health || exit 1
+          docker stop pos-test
+          docker rm pos-test
