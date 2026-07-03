@@ -138,7 +138,7 @@ class POSScreen(Gtk.Box):
     def _build_right_panel(self):
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         right.get_style_context().add_class("cart-panel")
-        right.set_size_request(scaled_px(360), -1)
+        right.set_size_request(scaled_px(380), -1)
         right.set_vexpand(True)
 
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -447,24 +447,28 @@ class POSScreen(Gtk.Box):
 
         cash_btn = Gtk.Button(label="💵  Бэлэн (F2)")
         scaled_size_request(cash_btn, -1, 68)
+        cash_btn.get_style_context().add_class("pay-agent-btn")
         cash_btn.get_style_context().add_class("pay-select-cash")
         cash_btn.connect("clicked", lambda b: [dialog.response(Gtk.ResponseType.OK), self._show_checkout("cash")])
         btn_grid.pack_start(cash_btn, False, False, 0)
 
         card_btn = Gtk.Button(label="💳  Карт (F4)")
         scaled_size_request(card_btn, -1, 68)
+        card_btn.get_style_context().add_class("pay-agent-btn")
         card_btn.get_style_context().add_class("pay-select-card")
         card_btn.connect("clicked", lambda b: [dialog.response(Gtk.ResponseType.OK), self._show_checkout("card")])
         btn_grid.pack_start(card_btn, False, False, 0)
 
         qr_btn = Gtk.Button(label="📱  QR (F5)")
         scaled_size_request(qr_btn, -1, 68)
+        qr_btn.get_style_context().add_class("pay-agent-btn")
         qr_btn.get_style_context().add_class("pay-select-qr")
         qr_btn.connect("clicked", lambda b: [dialog.response(Gtk.ResponseType.OK), self._show_checkout("qr")])
         btn_grid.pack_start(qr_btn, False, False, 0)
 
         split_btn = Gtk.Button(label="🔀  Холимог (Бэлэн+Карт)")
         scaled_size_request(split_btn, -1, 68)
+        split_btn.get_style_context().add_class("pay-agent-btn")
         split_btn.get_style_context().add_class("pay-select-split")
         split_btn.connect("clicked", lambda b: [dialog.response(Gtk.ResponseType.OK), self._show_checkout("split")])
         btn_grid.pack_start(split_btn, False, False, 0)
@@ -1311,10 +1315,6 @@ class POSScreen(Gtk.Box):
         receipt_label = Gtk.Label(label=receipt_text)
         receipt_label.set_selectable(True)
         receipt_label.set_justify(Gtk.Justification.LEFT)
-        css = b"label.receipt-text { font-family: monospace; font-size: 13px; background: #F8FAFC; padding: 12px; border-radius: 8px; }"
-        provider = Gtk.CssProvider()
-        provider.load_from_data(css)
-        receipt_label.get_style_context().add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         receipt_label.get_style_context().add_class("receipt-text")
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)

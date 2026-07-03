@@ -4,7 +4,7 @@ posgtk/categories.py — Category management with icon/color editing.
 import logging
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, GLib, Pango
+from gi.repository import Gtk, Gdk, GLib, Pango
 
 logger = logging.getLogger("pos.gtk.categories")
 
@@ -24,27 +24,29 @@ class CategoriesScreen(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.app = app
 
-        toolbar = Gtk.Toolbar()
-        add_btn = Gtk.ToolButton.new(
-            Gtk.Image.new_from_icon_name("list-add", Gtk.IconSize.SMALL_TOOLBAR), "Шинэ ангилал"
-        )
+        header = Gtk.Label(label="🏷 Ангилал")
+        header.get_style_context().add_class("page-header")
+        header.set_halign(Gtk.Align.START)
+        self.pack_start(header, False, False, 0)
+
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        toolbar.get_style_context().add_class("action-toolbar")
+        add_btn = Gtk.Button(label="➕ Шинэ ангилал")
         add_btn.connect("clicked", self._on_add)
-        toolbar.insert(add_btn, -1)
+        toolbar.pack_start(add_btn, False, False, 0)
         self.pack_start(toolbar, False, False, 0)
 
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        panel.get_style_context().add_class("content-panel")
+        panel.set_vexpand(True)
+
         scrolled = Gtk.ScrolledWindow()
-        scrolled.set_margin_start(8)
-
-        scrolled.set_margin_end(8)
-
-        scrolled.set_margin_top(8)
-
-        scrolled.set_margin_bottom(8)
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.listbox = Gtk.ListBox()
         self.listbox.set_selection_mode(Gtk.SelectionMode.NONE)
         scrolled.add(self.listbox)
-        self.pack_start(scrolled, True, True, 0)
+        panel.pack_start(scrolled, True, True, 0)
+        self.pack_start(panel, True, True, 0)
 
         self.show_all()
         GLib.idle_add(self._load_data)
@@ -77,14 +79,23 @@ class CategoriesScreen(Gtk.Box):
         cat_id = cat.get("id")
 
         row = Gtk.ListBoxRow()
+        row.get_style_context().add_class("data-row")
         hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         hbox.set_margin_start(8)
-
         hbox.set_margin_end(8)
-
         hbox.set_margin_top(8)
-
         hbox.set_margin_bottom(8)
+
+        color_indicator = Gtk.Box()
+        color_indicator.get_style_context().add_class("category-color-indicator")
+        color_str = color.lstrip("#")
+        if len(color_str) == 6:
+            r, g, b = int(color_str[0:2], 16), int(color_str[2:4], 16), int(color_str[4:6], 16)
+            color_indicator.override_background_color(
+                Gtk.StateFlags.NORMAL,
+                Gdk.RGBA(r/255.0, g/255.0, b/255.0, 1.0)
+            )
+        hbox.pack_start(color_indicator, False, False, 0)
 
         icon_btn = Gtk.Button(label=icon)
         icon_btn.set_relief(Gtk.ReliefStyle.NONE)
@@ -107,12 +118,12 @@ class CategoriesScreen(Gtk.Box):
         color_btn.connect("color-set", lambda b: self._update_color(cat_id, b.get_rgba()))
         hbox.pack_start(color_btn, False, False, 0)
 
-        edit_btn = Gtk.Button(label="✏")
+        edit_btn = Gtk.Button(label="✏️")
         edit_btn.set_relief(Gtk.ReliefStyle.NONE)
         edit_btn.connect("clicked", lambda b, c=cat: self._edit_name(c))
         hbox.pack_start(edit_btn, False, False, 0)
 
-        del_btn = Gtk.Button(label="🗑")
+        del_btn = Gtk.Button(label="🗑️")
         del_btn.set_relief(Gtk.ReliefStyle.NONE)
         del_btn.connect("clicked", lambda b, c=cat: self._delete(c))
         hbox.pack_start(del_btn, False, False, 0)
@@ -127,20 +138,25 @@ class CategoriesScreen(Gtk.Box):
             flags=Gtk.DialogFlags.MODAL,
         )
         content = dialog.get_content_area()
-        content.set_spacing(8)
-        content.set_margin_start(16)
+        content.get_style_context().add_class("form-card")
+        content.set_spacing(10)
+        content.set_margin_start(20)
+        content.set_margin_end(20)
+        content.set_margin_top(20)
+        content.set_margin_bottom(20)
 
-        content.set_margin_end(16)
+        title = Gtk.Label()
+        title.set_markup('<span weight="800" size="14000">Шинэ ангилал</span>')
+        title.set_halign(Gtk.Align.START)
+        content.add(title)
 
-        content.set_margin_top(16)
-
-        content.set_margin_bottom(16)
         entry = Gtk.Entry()
         entry.set_placeholder_text("Ангиллын нэр")
         entry.set_activates_default(True)
         content.add(entry)
         dialog.add_button("Цуцлах", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Үүсгэх", Gtk.ResponseType.OK)
+        save_btn = dialog.add_button("Үүсгэх", Gtk.ResponseType.OK)
+        save_btn.get_style_context().add_class("suggested-action")
         dialog.show_all()
         if dialog.run() == Gtk.ResponseType.OK:
             name = entry.get_text().strip()
@@ -164,19 +180,25 @@ class CategoriesScreen(Gtk.Box):
             flags=Gtk.DialogFlags.MODAL,
         )
         content = dialog.get_content_area()
-        content.set_margin_start(16)
+        content.get_style_context().add_class("form-card")
+        content.set_spacing(10)
+        content.set_margin_start(20)
+        content.set_margin_end(20)
+        content.set_margin_top(20)
+        content.set_margin_bottom(20)
 
-        content.set_margin_end(16)
+        title = Gtk.Label()
+        title.set_markup(f'<span weight="800" size="14000">{cat.get("name", "")}</span>')
+        title.set_halign(Gtk.Align.START)
+        content.add(title)
 
-        content.set_margin_top(16)
-
-        content.set_margin_bottom(16)
         entry = Gtk.Entry()
         entry.set_text(cat.get("name", ""))
         entry.set_activates_default(True)
         content.add(entry)
         dialog.add_button("Цуцлах", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Хадгалах", Gtk.ResponseType.OK)
+        save_btn = dialog.add_button("Хадгалах", Gtk.ResponseType.OK)
+        save_btn.get_style_context().add_class("suggested-action")
         dialog.show_all()
         if dialog.run() == Gtk.ResponseType.OK:
             name = entry.get_text().strip()

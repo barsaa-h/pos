@@ -1,7 +1,7 @@
 """
 posgtk/main.py — GTK Application entry point.
 
-Main window with sidebar navigation + stacked screens.
+Main window with horizontal top navigation bar + stacked screens.
 No Flask server needed. Calls database, printer, terminal, ebarimt directly.
 """
 
@@ -33,6 +33,15 @@ _LOADING_TEXTS = {
     "settings": "Тохиргоо",
 }
 
+_NAV_ITEMS = [
+    ("🛒", "Борлуулалт", "pos"),
+    ("📋", "Түүх", "sales"),
+    ("📦", "Бараа", "products"),
+    ("🏷", "Ангилал", "categories"),
+    ("📈", "Тайлан", "reports"),
+    ("⚙️", "Тохиргоо", "settings"),
+]
+
 
 def _make_placeholder(name):
     from posgtk.widgets import make_loading_placeholder
@@ -55,6 +64,7 @@ class POSApplication(Gtk.Application):
         self.auth_verified = False
         self.auth_time = 0
         self.clock_label = None
+        self._nav_btns = {}
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -70,33 +80,28 @@ class POSApplication(Gtk.Application):
             application=self, title="Моност — POS Систем",
             window_position=Gtk.WindowPosition.CENTER,
         )
+        self.window.get_style_context().add_class("main-window-bg")
         self.window.connect("key-press-event", self._on_key_press)
         self.window.connect("destroy", self._on_quit)
 
         self._init_theme()
         self.window.set_default_size(scaled_px(1024), scaled_px(640))
 
-        header = self._build_header()
-        self.window.set_titlebar(header)
+        main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        top_nav = self._build_top_nav()
+        main_vbox.pack_start(top_nav, False, False, 0)
 
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.stack.set_transition_duration(120)
 
-        sidebar = self._build_sidebar()
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        content_box.get_style_context().add_class("content-area")
+        content_box.pack_start(self.stack, True, True, 0)
+        main_vbox.pack_start(content_box, True, True, 0)
 
-        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        sidebar.get_style_context().add_class("sidebar-list")
-        sidebar_frame = Gtk.Frame()
-        sidebar_frame.add(sidebar)
-        hbox.pack_start(sidebar_frame, False, False, 0)
-
-        stack_frame = Gtk.Frame()
-        stack_frame.get_style_context().add_class("screen-box")
-        stack_frame.add(self.stack)
-        hbox.pack_end(stack_frame, True, True, 0)
-
-        self.window.add(hbox)
+        self.window.add(main_vbox)
 
         try:
             from posgtk.pos import POSScreen
@@ -111,7 +116,7 @@ class POSApplication(Gtk.Application):
         self.window.maximize()
         self.window.show_all()
         GLib.idle_add(self._show_pos)
-        GLib.idle_add(lambda: sidebar.select_row(sidebar.get_row_at_index(1)))
+        self._activate_nav("pos")
 
         self.window.connect("realize", self._on_window_realized)
 
@@ -172,95 +177,69 @@ class POSApplication(Gtk.Application):
             pass
         self.auth_verified = True
 
-    def _build_header(self):
-        header = Gtk.HeaderBar()
-        header.set_show_close_button(True)
-        header.get_style_context().add_class("pos-header")
+    def _build_top_nav(self):
+        nav = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        nav.get_style_context().add_class("top-nav-bar")
+        nav.set_margin_start(scaled_px(20))
+        nav.set_margin_end(scaled_px(20))
 
-        title_label = Gtk.Label()
-        title_label.set_markup(
-            '<span weight="800" size="18000">Моност</span>'
-            ' <span weight="600" size="14000" foreground="#667085">— POS Систем</span>'
-        )
-        header.set_custom_title(title_label)
+        brand = Gtk.Label(label="Моност")
+        brand.get_style_context().add_class("top-nav-brand")
+        brand.set_halign(Gtk.Align.START)
+        nav.pack_start(brand, False, False, 0)
+
+        nav_links_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(4))
+        nav_links_box.set_halign(Gtk.Align.CENTER)
+        nav_links_box.set_hexpand(True)
+        nav_links_box.set_margin_start(scaled_px(20))
+
+        for icon, label, name in _NAV_ITEMS:
+            btn = Gtk.Button(label=f"{icon}  {label}")
+            btn.set_relief(Gtk.ReliefStyle.NONE)
+            btn.get_style_context().add_class("top-nav-link")
+            btn.set_name(name)
+            btn.connect("clicked", self._on_nav_clicked, name)
+            nav_links_box.pack_start(btn, False, False, 0)
+            self._nav_btns[name] = btn
+
+        nav.pack_start(nav_links_box, True, True, 0)
+
+        right_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(10))
+        right_box.set_halign(Gtk.Align.END)
 
         self.clock_label = Gtk.Label(label="--:--:--")
-        self.clock_label.set_margin_end(scaled_px(12))
         self.clock_label.get_style_context().add_class("clock-label")
-        header.pack_end(self.clock_label)
-
+        right_box.pack_start(self.clock_label, False, False, 0)
         self._update_clock()
         GLib.timeout_add(1000, self._update_clock)
 
         lock_btn = Gtk.Button.new_from_icon_name(
             "system-lock-screen", Gtk.IconSize.SMALL_TOOLBAR
         )
+        lock_btn.set_relief(Gtk.ReliefStyle.NONE)
         lock_btn.set_tooltip_text("Түгжих")
         lock_btn.connect("clicked", self._on_lock)
-        header.pack_end(lock_btn)
+        right_box.pack_start(lock_btn, False, False, 0)
 
-        return header
+        nav.pack_start(right_box, False, False, 0)
 
-    def _update_clock(self):
-        from datetime import datetime
-        if self.clock_label:
-            now = datetime.now()
-            self.clock_label.set_text(now.strftime("%H:%M:%S"))
-        return True
+        return nav
 
-    def _build_sidebar(self):
-        listbox = Gtk.ListBox()
-        scaled_size_request(listbox, 200, -1)
-        listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        listbox.connect("row-selected", self._on_sidebar_select)
-        listbox.get_style_context().add_class("sidebar-list")
-
-        logo = Gtk.ListBoxRow()
-        logo_box = Gtk.Box(spacing=scaled_px(8),
-                          margin_start=scaled_px(14), margin_end=scaled_px(14),
-                          margin_top=scaled_px(16), margin_bottom=scaled_px(12))
-        logo_label = Gtk.Label()
-        logo_label.set_markup('<span weight="900" size="18000" foreground="#34D399">Моност</span>')
-        logo_box.pack_start(logo_label, False, False, 0)
-        logo.add(logo_box)
-        logo.set_sensitive(False)
-        logo.can_focus = False
-        listbox.add(logo)
-
-        items = [
-            ("🛒", "Борлуулалт", "pos"),
-            ("📋", "Борлуулалтын түүх", "sales"),
-            ("📦", "Бараа", "products"),
-            ("🏷", "Ангилал", "categories"),
-            ("🚛", "Ханган нийлүүлэгч", "suppliers"),
-            ("📊", "Агуулах тохируулга", "stock"),
-            ("📈", "Тайлан", "reports"),
-            ("⚙️", "Тохиргоо", "settings"),
-        ]
-
-        for icon, label, name in items:
-            row = Gtk.ListBoxRow()
-            row.set_name(name)
-            h = Gtk.Box(spacing=scaled_px(8),
-                       margin_start=scaled_px(12), margin_end=scaled_px(12),
-                       margin_top=scaled_px(6), margin_bottom=scaled_px(6))
-            h.pack_start(Gtk.Label(label=icon, xalign=0), False, False, 0)
-            h.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
-            row.add(h)
-            row.get_style_context().add_class("sidebar-row")
-            listbox.add(row)
-
-        return listbox
-
-    def _on_sidebar_select(self, listbox, row):
-        if row is None:
-            return
-        name = row.get_name()
+    def _on_nav_clicked(self, btn, name):
         if name == "pos":
             self._show_pos()
+            self._activate_nav("pos")
             return
         self._ensure_screen_imported(name)
         self.stack.set_visible_child_name(name)
+        self._activate_nav(name)
+
+    def _activate_nav(self, active_name):
+        for name, btn in self._nav_btns.items():
+            if name == active_name:
+                btn.get_style_context().add_class("active")
+            else:
+                btn.get_style_context().remove_class("active")
 
     def _ensure_screen_imported(self, name):
         if name in _IMPORTED_SCREENS:
@@ -304,6 +283,13 @@ class POSApplication(Gtk.Application):
     def _refocus_pos(self):
         if self.pos_screen and hasattr(self.pos_screen, 'barcode_entry'):
             self.pos_screen.barcode_entry.grab_focus()
+
+    def _update_clock(self):
+        from datetime import datetime
+        if self.clock_label:
+            now = datetime.now()
+            self.clock_label.set_text(now.strftime("%H:%M:%S"))
+        return True
 
     def _on_lock(self, btn):
         from posgtk.login import LoginDialog
@@ -381,10 +367,6 @@ class POSApplication(Gtk.Application):
             return self._handle_grid_nav(keyname)
 
         if widget.get_focus() and isinstance(widget.get_focus(), Gtk.Entry):
-            return False
-
-        quick_map = {"1": 1000, "2": 5000, "3": 10000, "4": 20000, "5": 50000, "6": 100000}
-        if keyname in quick_map:
             return False
 
         return False

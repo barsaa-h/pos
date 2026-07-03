@@ -20,47 +20,47 @@ class ProductsScreen(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.app = app
 
-        toolbar = Gtk.Toolbar()
-        toolbar.set_style(Gtk.ToolbarStyle.ICONS)
+        header = Gtk.Label(label="📦 Бараа")
+        header.get_style_context().add_class("page-header")
+        header.set_halign(Gtk.Align.START)
+        self.pack_start(header, False, False, 0)
 
-        add_btn = Gtk.ToolButton.new(
-            Gtk.Image.new_from_icon_name("list-add", Gtk.IconSize.SMALL_TOOLBAR), "Шинэ бараа"
-        )
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        toolbar.get_style_context().add_class("action-toolbar")
+
+        add_btn = Gtk.Button(label="➕ Шинэ бараа")
         add_btn.set_tooltip_text("Шинэ бараа үүсгэх")
         add_btn.connect("clicked", self._on_add)
-        toolbar.insert(add_btn, -1)
+        toolbar.pack_start(add_btn, False, False, 0)
 
-        refresh_btn = Gtk.ToolButton.new(
-            Gtk.Image.new_from_icon_name("view-refresh", Gtk.IconSize.SMALL_TOOLBAR), "Сэргээх"
-        )
+        refresh_btn = Gtk.Button(label="🔄 Сэргээх")
         refresh_btn.set_tooltip_text("Жагсаалт сэргээх")
         refresh_btn.connect("clicked", lambda b: self._load_data())
-        toolbar.insert(refresh_btn, -1)
+        toolbar.pack_start(refresh_btn, False, False, 0)
 
         self.pack_start(toolbar, False, False, 0)
 
         search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        search_box.set_margin_top(4)
-        search_box.set_margin_bottom(4)
-        search_box.set_margin_start(8)
-        search_box.set_margin_end(8)
+        search_box.get_style_context().add_class("search-toolbar")
 
         self.search_entry = Gtk.SearchEntry()
-        self.search_entry.set_placeholder_text("Бараа хайх (нэр эсвэл баркод)...")
+        self.search_entry.set_placeholder_text("🔍  Бараа хайх (нэр эсвэл баркод)...")
         self.search_entry.connect("search-changed", self._on_search)
         self.search_entry.connect("stop-search", lambda e: self._load_data())
         search_box.pack_start(self.search_entry, True, True, 0)
         self.pack_start(search_box, False, False, 0)
 
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        panel.get_style_context().add_class("content-panel")
+        panel.set_vexpand(True)
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_margin_start(8)
-        scrolled.set_margin_end(8)
-        scrolled.set_margin_bottom(8)
 
         self.store = Gtk.ListStore(int, str, str, str, str, str, int, object)
         self.tree = Gtk.TreeView(model=self.store)
         self.tree.set_enable_search(False)
+        self.tree.get_style_context().add_class("data-table")
         self.tree.get_style_context().add_class("treeview-table")
 
         cols = [
@@ -92,7 +92,8 @@ class ProductsScreen(Gtk.Box):
 
         self.tree.connect("row-activated", self._on_row_activated)
         scrolled.add(self.tree)
-        self.pack_start(scrolled, True, True, 0)
+        panel.pack_start(scrolled, True, True, 0)
+        self.pack_start(panel, True, True, 0)
 
         self.show_all()
         GLib.idle_add(self._load_data)
@@ -195,14 +196,17 @@ class ProductsScreen(Gtk.Box):
         )
         dialog.set_default_size(400, 380)
         content = dialog.get_content_area()
-        content.set_spacing(8)
-        content.set_margin_start(16)
+        content.get_style_context().add_class("form-card")
+        content.set_spacing(10)
+        content.set_margin_start(20)
+        content.set_margin_end(20)
+        content.set_margin_top(20)
+        content.set_margin_bottom(20)
 
-        content.set_margin_end(16)
-
-        content.set_margin_top(16)
-
-        content.set_margin_bottom(16)
+        dialog_title = Gtk.Label()
+        dialog_title.set_markup(f'<span weight="800" size="14000">{title}</span>')
+        dialog_title.set_halign(Gtk.Align.START)
+        content.add(dialog_title)
 
         fields = [
             ("Баркод:", "barcode", ""),
@@ -213,9 +217,8 @@ class ProductsScreen(Gtk.Box):
         ]
         entries = {}
         for label_text, key, default in fields:
-            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-            lbl = Gtk.Label(label=label_text, xalign=1)
-            lbl.set_width_chars(10)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            lbl = Gtk.Label(label=label_text, xalign=0)
             box.pack_start(lbl, False, False, 0)
 
             if key == "category":

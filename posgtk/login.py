@@ -46,34 +46,43 @@ class LoginDialog(Gtk.Dialog):
             transient_for=parent,
             flags=Gtk.DialogFlags.MODAL,
         )
-        self.set_default_size(320, 180)
+        self.set_default_size(360, 260)
         self.authenticated = False
 
         content = self.get_content_area()
+        content.get_style_context().add_class("form-card")
         content.set_spacing(12)
-        content.set_margin_top(16)
-        content.set_margin_bottom(16)
-        content.set_margin_start(24)
-        content.set_margin_end(24)
+        content.set_margin_top(24)
+        content.set_margin_bottom(20)
+        content.set_margin_start(28)
+        content.set_margin_end(28)
 
-        title = Gtk.Label(label="🔒 Админ нэвтрэх")
-        title.get_style_context().add_class("title")
-        title.set_margin_bottom(8)
-        content.add(title)
+        brand = Gtk.Label()
+        brand.set_markup(
+            '<span weight="900" size="24000" foreground="#0EA34A">Моност</span>\n'
+            '<span size="12000" color="#667085">Админ нэвтрэх</span>'
+        )
+        brand.set_halign(Gtk.Align.CENTER)
+        brand.set_margin_bottom(12)
+        content.add(brand)
 
         self.pin_entry = Gtk.Entry()
         self.pin_entry.set_visibility(False)
         self.pin_entry.set_max_length(6)
-        self.pin_entry.set_placeholder_text("PIN код оруулна уу")
+        self.pin_entry.set_placeholder_text("🔒 PIN код оруулна уу")
         self.pin_entry.set_activates_default(True)
+        self.pin_entry.set_size_request(-1, 48)
+        self.pin_entry.get_style_context().add_class("barcode-entry")
         content.add(self.pin_entry)
 
         self.error_label = Gtk.Label(label="")
         self.error_label.set_no_show_all(True)
+        self.error_label.get_style_context().add_class("text-muted")
         content.add(self.error_label)
 
         self.add_button("Цуцлах", Gtk.ResponseType.CANCEL)
-        self.add_button("Нэвтрэх", Gtk.ResponseType.OK)
+        login_btn = self.add_button("Нэвтрэх", Gtk.ResponseType.OK)
+        login_btn.get_style_context().add_class("suggested-action")
         self.set_default_response(Gtk.ResponseType.OK)
 
         self.show_all()

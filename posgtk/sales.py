@@ -21,47 +21,46 @@ class SalesScreen(Gtk.Box):
         self._date_from = ""
         self._date_to = ""
 
+        header = Gtk.Label(label="📋 Борлуулалтын түүх")
+        header.get_style_context().add_class("page-header")
+        header.set_halign(Gtk.Align.START)
+        self.pack_start(header, False, False, 0)
+
         filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        filter_box.set_margin_start(8)
-
-        filter_box.set_margin_end(8)
-
-        filter_box.set_margin_top(8)
-
-        filter_box.set_margin_bottom(8)
+        filter_box.get_style_context().add_class("search-toolbar")
 
         self.date_from_entry = Gtk.Entry()
-        self.date_from_entry.set_placeholder_text("Эхлэх (YYYY-MM-DD)")
+        self.date_from_entry.set_placeholder_text("📅  Эхлэх (YYYY-MM-DD)")
         self.date_from_entry.set_tooltip_text("Огноогоор шүүх — эхлэх")
         filter_box.pack_start(self.date_from_entry, False, False, 0)
 
         self.date_to_entry = Gtk.Entry()
-        self.date_to_entry.set_placeholder_text("Дуусах (YYYY-MM-DD)")
+        self.date_to_entry.set_placeholder_text("📅  Дуусах (YYYY-MM-DD)")
         self.date_to_entry.set_tooltip_text("Огноогоор шүүх — дуусах")
         filter_box.pack_start(self.date_to_entry, False, False, 0)
 
-        filter_btn = Gtk.Button(label="Шүүх")
+        filter_btn = Gtk.Button(label="🔍 Шүүх")
+        filter_btn.get_style_context().add_class("category-btn")
         filter_btn.connect("clicked", lambda b: self._apply_filter())
         filter_box.pack_start(filter_btn, False, False, 0)
 
-        clear_btn = Gtk.Button(label="Цэвэрлэх")
+        clear_btn = Gtk.Button(label="❌ Цэвэрлэх")
+        clear_btn.get_style_context().add_class("category-btn")
         clear_btn.connect("clicked", lambda b: self._clear_filter())
         filter_box.pack_start(clear_btn, False, False, 0)
 
         self.pack_start(filter_box, False, False, 0)
 
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        panel.get_style_context().add_class("content-panel")
+        panel.set_vexpand(True)
+
         scrolled = Gtk.ScrolledWindow()
-        scrolled.set_margin_start(8)
-
-        scrolled.set_margin_end(8)
-
-        scrolled.set_margin_top(8)
-
-        scrolled.set_margin_bottom(8)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
 
         self.store = Gtk.ListStore(int, str, str, str, str, str, int)
         self.tree = Gtk.TreeView(model=self.store)
+        self.tree.get_style_context().add_class("data-table")
         self.tree.get_style_context().add_class("treeview-table")
 
         cols = [
@@ -80,16 +79,16 @@ class SalesScreen(Gtk.Box):
 
         self.tree.connect("row-activated", self._on_row_activated)
         scrolled.add(self.tree)
-        self.pack_start(scrolled, True, True, 0)
+        panel.pack_start(scrolled, True, True, 0)
+        self.pack_start(panel, True, True, 0)
 
         page_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         page_box.set_halign(Gtk.Align.CENTER)
-        page_box.set_margin_start(8)
-        page_box.set_margin_end(8)
-        page_box.set_margin_top(4)
-        page_box.set_margin_bottom(4)
+        page_box.set_margin_top(8)
+        page_box.set_margin_bottom(8)
 
         self.prev_btn = Gtk.Button(label="‹ Өмнөх")
+        self.prev_btn.get_style_context().add_class("category-btn")
         self.prev_btn.connect("clicked", lambda b: self._change_page(-1))
         self.prev_btn.set_sensitive(False)
         page_box.pack_start(self.prev_btn, False, False, 0)
@@ -97,9 +96,11 @@ class SalesScreen(Gtk.Box):
         self.page_label = Gtk.Label(label="Хуудас 1")
         self.page_label.set_margin_start(12)
         self.page_label.set_margin_end(12)
+        self.page_label.get_style_context().add_class("text-muted")
         page_box.pack_start(self.page_label, False, False, 0)
 
         self.next_btn = Gtk.Button(label="Дараах ›")
+        self.next_btn.get_style_context().add_class("category-btn")
         self.next_btn.connect("clicked", lambda b: self._change_page(1))
         page_box.pack_start(self.next_btn, False, False, 0)
 
@@ -185,26 +186,32 @@ class SalesScreen(Gtk.Box):
         )
         dialog.set_default_size(500, 400)
         content = dialog.get_content_area()
+        content.get_style_context().add_class("form-card")
         content.set_spacing(8)
-        content.set_margin_start(16)
+        content.set_margin_start(20)
+        content.set_margin_end(20)
+        content.set_margin_top(20)
+        content.set_margin_bottom(20)
 
-        content.set_margin_end(16)
-
-        content.set_margin_top(16)
-
-        content.set_margin_bottom(16)
+        dlg_title = Gtk.Label()
+        dlg_title.set_markup(f'<span weight="800" size="14000">Борлуулалт #{sale.get("id", "?")}</span>')
+        dlg_title.set_halign(Gtk.Align.START)
+        content.add(dlg_title)
 
         info_lines = [
-            f"ID: {sale.get('id', '')}",
-            f"Огноо: {sale.get('created_at', '')}",
-            f"Төлбөр: {sale.get('payment_type', '')}",
+            ("ID", str(sale.get('id', ''))),
+            ("Огноо", sale.get('created_at', '')),
+            ("Төлбөр", sale.get('payment_type', '')),
         ]
         txn_id = sale.get("terminal_txn_id", "")
         if txn_id:
-            info_lines.append(f"Терминал гүйлгээ: {txn_id}")
+            info_lines.append(("Терминал", txn_id))
 
-        for line in info_lines:
-            content.add(Gtk.Label(label=line, xalign=0))
+        for lab, val in info_lines:
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+            row.pack_start(Gtk.Label(label=f"<b>{lab}:</b>", use_markup=True, xalign=0), False, False, 0)
+            row.pack_start(Gtk.Label(label=val, xalign=0), True, True, 0)
+            content.add(row)
 
         sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         sep.set_margin_top(8)
@@ -241,6 +248,7 @@ class SalesScreen(Gtk.Box):
         btn_box.set_margin_top(12)
 
         print_btn = Gtk.Button(label="🖨 Хэвлэх")
+        print_btn.get_style_context().add_class("category-btn")
         print_btn.connect("clicked", lambda b: self._do_print(sale))
         btn_box.pack_start(print_btn, False, False, 0)
 
@@ -250,10 +258,11 @@ class SalesScreen(Gtk.Box):
             return_btn.connect("clicked", lambda b: self._do_return(sale_id, dialog))
             btn_box.pack_start(return_btn, False, False, 0)
 
-        btn_box.pack_end(Gtk.Button(label="✕ Хаах"), False, False, 0)
+        close_btn = Gtk.Button(label="✕ Хаах")
+        close_btn.get_style_context().add_class("category-btn")
+        btn_box.pack_end(close_btn, False, False, 0)
 
         content.add(btn_box)
-        dialog.add_button("Хаах", Gtk.ResponseType.CLOSE)
         dialog.show_all()
         dialog.run()
         dialog.destroy()

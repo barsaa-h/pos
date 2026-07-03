@@ -69,7 +69,7 @@ def make_product_card(product, on_click, cache=None):
     card = Gtk.Button()
     card.set_relief(Gtk.ReliefStyle.NONE)
     card.get_style_context().add_class("product-card")
-    card.set_size_request(scaled_px(140), scaled_px(155))
+    card.set_size_request(scaled_px(146), scaled_px(165))
 
     outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
@@ -85,13 +85,13 @@ def make_product_card(product, on_click, cache=None):
         )
     outer.pack_start(accent, False, False, 0)
 
-    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(3))
+    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(4))
     content.set_valign(Gtk.Align.CENTER)
     content.set_halign(Gtk.Align.CENTER)
-    content.set_margin_top(scaled_px(6))
-    content.set_margin_bottom(scaled_px(6))
-    content.set_margin_start(scaled_px(4))
-    content.set_margin_end(scaled_px(4))
+    content.set_margin_top(scaled_px(8))
+    content.set_margin_bottom(scaled_px(8))
+    content.set_margin_start(scaled_px(6))
+    content.set_margin_end(scaled_px(6))
 
     icon_label = Gtk.Label(label=get_category_icon(category))
     icon_label.get_style_context().add_class("card-icon")

@@ -14,26 +14,28 @@ class SuppliersScreen(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.app = app
 
-        toolbar = Gtk.Toolbar()
-        add_btn = Gtk.ToolButton.new(
-            Gtk.Image.new_from_icon_name("list-add", Gtk.IconSize.SMALL_TOOLBAR), "Шинэ"
-        )
+        header = Gtk.Label(label="🚛 Ханган нийлүүлэгч")
+        header.get_style_context().add_class("page-header")
+        header.set_halign(Gtk.Align.START)
+        self.pack_start(header, False, False, 0)
+
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        toolbar.get_style_context().add_class("action-toolbar")
+        add_btn = Gtk.Button(label="➕ Шинэ")
         add_btn.connect("clicked", self._on_add)
-        toolbar.insert(add_btn, -1)
+        toolbar.pack_start(add_btn, False, False, 0)
         self.pack_start(toolbar, False, False, 0)
 
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        panel.get_style_context().add_class("content-panel")
+        panel.set_vexpand(True)
+
         scrolled = Gtk.ScrolledWindow()
-        scrolled.set_margin_start(8)
-
-        scrolled.set_margin_end(8)
-
-        scrolled.set_margin_top(8)
-
-        scrolled.set_margin_bottom(8)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
 
         self.store = Gtk.ListStore(str, str, str, str, str, int)
         self.tree = Gtk.TreeView(model=self.store)
+        self.tree.get_style_context().add_class("data-table")
         self.tree.get_style_context().add_class("treeview-table")
 
         cols = [
@@ -50,7 +52,8 @@ class SuppliersScreen(Gtk.Box):
 
         self.tree.connect("row-activated", self._on_row_activated)
         scrolled.add(self.tree)
-        self.pack_start(scrolled, True, True, 0)
+        panel.pack_start(scrolled, True, True, 0)
+        self.pack_start(panel, True, True, 0)
 
         self.show_all()
         GLib.idle_add(self._load_data)
@@ -88,21 +91,25 @@ class SuppliersScreen(Gtk.Box):
             supplier = None
         is_new = not supplier
 
+        title_text = "Шинэ ханган нийлүүлэгч" if is_new else "Засах"
         dialog = Gtk.Dialog(
-            title="Шинэ ханган нийлүүлэгч" if is_new else "Засах",
+            title=title_text,
             transient_for=self.get_toplevel(),
             flags=Gtk.DialogFlags.MODAL,
         )
         dialog.set_default_size(400, 300)
         content = dialog.get_content_area()
-        content.set_spacing(6)
-        content.set_margin_start(16)
+        content.get_style_context().add_class("form-card")
+        content.set_spacing(10)
+        content.set_margin_start(20)
+        content.set_margin_end(20)
+        content.set_margin_top(20)
+        content.set_margin_bottom(20)
 
-        content.set_margin_end(16)
-
-        content.set_margin_top(16)
-
-        content.set_margin_bottom(16)
+        dlg_title = Gtk.Label()
+        dlg_title.set_markup(f'<span weight="800" size="14000">{title_text}</span>')
+        dlg_title.set_halign(Gtk.Align.START)
+        content.add(dlg_title)
 
         fields = [
             ("Нэр:", "name", ""),
@@ -114,20 +121,21 @@ class SuppliersScreen(Gtk.Box):
         ]
         entries = {}
         for label_text, key, default in fields:
-            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-            lbl = Gtk.Label(label=label_text, xalign=1)
-            lbl.set_width_chars(15)
-            hbox.pack_start(lbl, False, False, 0)
+            vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            lbl = Gtk.Label(label=label_text, xalign=0)
+            vbox.pack_start(lbl, False, False, 0)
             entry = Gtk.Entry()
             entry.set_text(str(supplier.get(key, default)) if supplier else default)
             entries[key] = entry
-            hbox.pack_start(entry, True, True, 0)
-            content.add(hbox)
+            vbox.pack_start(entry, True, True, 0)
+            content.add(vbox)
 
         dialog.add_button("Цуцлах", Gtk.ResponseType.CANCEL)
         if not is_new:
-            dialog.add_button("Устгах", Gtk.ResponseType.NO)
-        dialog.add_button("Хадгалах", Gtk.ResponseType.OK)
+            del_btn = dialog.add_button("Устгах", Gtk.ResponseType.NO)
+            del_btn.get_style_context().add_class("destructive-action")
+        save_btn = dialog.add_button("Хадгалах", Gtk.ResponseType.OK)
+        save_btn.get_style_context().add_class("suggested-action")
         dialog.show_all()
 
         resp = dialog.run()
