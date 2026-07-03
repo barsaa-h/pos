@@ -1,7 +1,7 @@
 """
-posgtk/products.py — Product management with inline CRUD.
+posgtk/products.py — Product management with card grid layout.
 
-TreeView list with search/filter + add/edit/delete dialogs.
+Card grid with search/filter + category chips + add/edit/delete dialogs.
 Invalidates cache after any mutation so POS screen stays in sync.
 """
 
@@ -10,7 +10,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, Pango, GLib
 
-from posgtk.widgets import format_money
+from posgtk.widgets import format_money, get_category_icon
 
 logger = logging.getLogger("pos.gtk.products")
 
@@ -19,115 +19,139 @@ class ProductsScreen(Gtk.Box):
     def __init__(self, app=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.app = app
+        self._active_category = ""
+
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        header_box.get_style_context().add_class("page-header")
+        header_box.set_margin_start(16)
+        header_box.set_margin_end(16)
+        header_box.set_margin_top(12)
+        header_box.set_margin_bottom(8)
 
         header = Gtk.Label(label="📦 Бараа")
-        header.get_style_context().add_class("page-header")
+        header.get_style_context().add_class("page-title")
         header.set_halign(Gtk.Align.START)
-        self.pack_start(header, False, False, 0)
-
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        toolbar.get_style_context().add_class("action-toolbar")
+        header.set_hexpand(True)
+        header_box.pack_start(header, True, True, 0)
 
         add_btn = Gtk.Button(label="➕ Шинэ бараа")
-        add_btn.set_tooltip_text("Шинэ бараа үүсгэх")
         add_btn.connect("clicked", self._on_add)
-        toolbar.pack_start(add_btn, False, False, 0)
+        header_box.pack_end(add_btn, False, False, 0)
+        self.pack_start(header_box, False, False, 0)
 
-        refresh_btn = Gtk.Button(label="🔄 Сэргээх")
-        refresh_btn.set_tooltip_text("Жагсаалт сэргээх")
-        refresh_btn.connect("clicked", lambda b: self._load_data())
-        toolbar.pack_start(refresh_btn, False, False, 0)
-
-        self.pack_start(toolbar, False, False, 0)
-
-        search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        search_box.get_style_context().add_class("search-toolbar")
+        search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        search_box.set_margin_start(16)
+        search_box.set_margin_end(16)
+        search_box.set_margin_bottom(8)
 
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("🔍  Бараа хайх (нэр эсвэл баркод)...")
         self.search_entry.connect("search-changed", self._on_search)
-        self.search_entry.connect("stop-search", lambda e: self._load_data())
+        self.search_entry.connect("stop-search", lambda e: self._apply_filters())
         search_box.pack_start(self.search_entry, True, True, 0)
+
+        self._count_label = Gtk.Label(label="Нийт: 0 бараа")
+        self._count_label.get_style_context().add_class("text-muted")
+        search_box.pack_end(self._count_label, False, False, 0)
+
         self.pack_start(search_box, False, False, 0)
 
-        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        panel.get_style_context().add_class("content-panel")
-        panel.set_vexpand(True)
+        self._chip_box = Gtk.FlowBox()
+        self._chip_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._chip_box.set_margin_start(16)
+        self._chip_box.set_margin_end(16)
+        self._chip_box.set_margin_bottom(8)
+        self._chip_buttons = []
+        self.pack_start(self._chip_box, False, False, 0)
+
+        self._product_grid = Gtk.FlowBox()
+        self._product_grid.set_valign(Gtk.Align.START)
+        self._product_grid.set_max_children_per_line(4)
+        self._product_grid.set_min_children_per_line(2)
+        self._product_grid.set_homogeneous(True)
+        self._product_grid.set_column_spacing(12)
+        self._product_grid.set_row_spacing(12)
+        self._product_grid.set_selection_mode(Gtk.SelectionMode.NONE)
 
         scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-
-        self.store = Gtk.ListStore(int, str, str, str, str, str, int, object)
-        self.tree = Gtk.TreeView(model=self.store)
-        self.tree.set_enable_search(False)
-        self.tree.get_style_context().add_class("data-table")
-        self.tree.get_style_context().add_class("treeview-table")
-
-        cols = [
-            ("Д/д", 0, 50),
-            ("Баркод", 1, 120),
-            ("Нэр", 2, 200),
-            ("Үнэ", 3, 100),
-            ("Ангилал", 4, 100),
-            ("Нэгж", 5, 60),
-            ("ID", 6, 0),
-        ]
-        for i, (title, col_id, width) in enumerate(cols):
-            renderer = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END if col_id > 0 else Pango.EllipsizeMode.NONE)
-            col = Gtk.TreeViewColumn(title, renderer, text=col_id)
-            col.set_resizable(True)
-            col.set_min_width(width)
-            if width == 0:
-                col.set_visible(False)
-            self.tree.append_column(col)
-
-        action_col = Gtk.TreeViewColumn("Үйлдэл")
-        edit_renderer = Gtk.CellRendererText()
-        edit_renderer.set_property("foreground", "#2563EB")
-        edit_renderer.set_property("text", "✏")
-        action_col.pack_start(edit_renderer, False)
-        action_col.set_cell_data_func(edit_renderer, self._action_cell_data)
-        action_col.set_min_width(80)
-        self.tree.append_column(action_col)
-
-        self.tree.connect("row-activated", self._on_row_activated)
-        scrolled.add(self.tree)
-        panel.pack_start(scrolled, True, True, 0)
-        self.pack_start(panel, True, True, 0)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+        scrolled.add(self._product_grid)
+        self.pack_start(scrolled, True, True, 0)
 
         self.show_all()
         GLib.idle_add(self._load_data)
+        GLib.idle_add(self._load_categories)
 
-    def _action_cell_data(self, column, cell, model, iter, data):
-        cell.set_property("text", "✏ Засах")
+    def _load_categories(self):
+        try:
+            import database as db
+            cats = db.get_all_categories()
+        except Exception:
+            cats = []
+        for child in self._chip_box.get_children():
+            self._chip_box.remove(child)
+        self._chip_buttons.clear()
+
+        all_btn = Gtk.ToggleButton(label="🌐 Бүгд")
+        all_btn.get_style_context().add_class("category-chip")
+        all_btn.set_active(True)
+        all_btn.connect("toggled", self._on_category_chip, "")
+        self._chip_box.add(all_btn)
+        self._chip_buttons.append(("", all_btn))
+
+        for cat in cats:
+            name = cat.get("name", "")
+            if not name:
+                continue
+            icon = get_category_icon(name)
+            btn = Gtk.ToggleButton(label=f"{icon} {name}")
+            btn.get_style_context().add_class("category-chip")
+            btn.connect("toggled", self._on_category_chip, name)
+            self._chip_box.add(btn)
+            self._chip_buttons.append((name, btn))
+
+        self._chip_box.show_all()
+
+    def _on_category_chip(self, toggle_btn, category):
+        if not toggle_btn.get_active():
+            return
+        self._active_category = category
+        for name, btn in self._chip_buttons:
+            if btn != toggle_btn:
+                btn.set_active(False)
+        self._apply_filters()
 
     def _load_data(self, *args):
-        search_query = getattr(self, "search_entry", None)
-        query_text = search_query.get_text().strip().lower() if search_query else ""
+        self._apply_filters()
+
+    def _apply_filters(self, *args):
+        query = ""
+        if hasattr(self, "search_entry") and self.search_entry:
+            query = self.search_entry.get_text().strip().lower()
+        category = self._active_category
 
         def fetch_background():
             import database as db
             products = db.get_all_products(active_only=True)
-            if query_text:
+            if query:
                 products = [
                     p for p in products
-                    if query_text in p.get("name", "").lower() or query_text in p.get("barcode", "")
+                    if query in p.get("name", "").lower() or query in p.get("barcode", "").lower()
                 ]
+            if category:
+                products = [p for p in products if p.get("category", "") == category]
             return products
 
         def on_fetch_complete(products):
-            self.store.clear()
-            for i, p in enumerate(products, 1):
-                self.store.append([
-                    i,
-                    p.get("barcode", ""),
-                    p.get("name", ""),
-                    format_money(p.get("price", 0)),
-                    p.get("category", ""),
-                    p.get("unit", ""),
-                    p.get("id", 0),
-                    p,
-                ])
+            for child in self._product_grid.get_children():
+                self._product_grid.remove(child)
+            for p in products:
+                card = self._make_product_card(p)
+                self._product_grid.add(card)
+            self._product_grid.show_all()
+            total = len(products)
+            self._count_label.set_label(f"Нийт: {total} бараа")
 
         def on_fetch_error(error_msg):
             logger.error(f"Background product load failed: {error_msg}")
@@ -140,50 +164,115 @@ class ProductsScreen(Gtk.Box):
             except Exception as e:
                 on_fetch_error(str(e))
 
+    def _make_product_card(self, product):
+        name = product.get("name", "")
+        barcode = product.get("barcode", "")
+        price = product.get("price", 0)
+        category = product.get("category", "")
+        unit = product.get("unit", "ш")
+        stock = product.get("stock_qty", 0)
+        icon = get_category_icon(category)
+
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        card.get_style_context().add_class("product-card-item")
+        card.set_size_request(200, -1)
+
+        header_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_row.set_margin_start(12)
+        header_row.set_margin_end(12)
+        header_row.set_margin_top(10)
+
+        icon_label = Gtk.Label(label=icon)
+        icon_label.get_style_context().add_class("product-icon")
+        header_row.pack_start(icon_label, False, False, 0)
+
+        name_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        name_label = Gtk.Label(label=name)
+        name_label.set_xalign(0)
+        name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        name_label.set_max_width_chars(20)
+        name_label.get_style_context().add_class("product-card-name")
+        name_box.pack_start(name_label, False, False, 0)
+
+        if barcode:
+            barcode_label = Gtk.Label(label=barcode)
+            barcode_label.set_xalign(0)
+            barcode_label.get_style_context().add_class("product-card-barcode")
+            name_box.pack_start(barcode_label, False, False, 0)
+
+        header_row.pack_start(name_box, True, True, 0)
+        card.pack_start(header_row, False, False, 0)
+
+        price_label = Gtk.Label(label=f"{format_money(price)}₮")
+        price_label.set_xalign(0)
+        price_label.set_margin_start(12)
+        price_label.set_margin_top(6)
+        price_label.get_style_context().add_class("product-card-price")
+        card.pack_start(price_label, False, False, 0)
+
+        meta_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        meta_box.set_margin_start(12)
+        meta_box.set_margin_top(4)
+
+        cat_label = Gtk.Label(label=f"{icon} {category}")
+        cat_label.get_style_context().add_class("product-card-meta")
+        meta_box.pack_start(cat_label, False, False, 0)
+
+        stock_label = Gtk.Label(label=f"Үлдэгдэл: {stock}")
+        stock_label.get_style_context().add_class("product-card-meta")
+        meta_box.pack_start(stock_label, False, False, 0)
+
+        card.pack_start(meta_box, False, False, 0)
+
+        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        sep.set_margin_top(8)
+        card.pack_start(sep, False, False, 0)
+
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        action_box.set_margin_start(12)
+        action_box.set_margin_end(12)
+        action_box.set_margin_top(6)
+        action_box.set_margin_bottom(8)
+
+        edit_btn = Gtk.Button(label="✏️ Засах")
+        edit_btn.get_style_context().add_class("product-card-edit-btn")
+        edit_btn.connect("clicked", lambda b, p=product: self._show_edit_dialog(p))
+        action_box.pack_start(edit_btn, False, False, 0)
+
+        del_btn = Gtk.Button(label="🗑 Устгах")
+        del_btn.get_style_context().add_class("product-card-delete-btn")
+        del_btn.connect("clicked", lambda b, p=product: self._delete_product(p))
+        action_box.pack_end(del_btn, False, False, 0)
+
+        card.pack_start(action_box, False, False, 0)
+
+        return card
+
     def _on_search(self, entry):
-        query = entry.get_text().strip()
-        if not query:
-            self._load_data()
-            return
-        q = query.lower()
-        self.store.clear()
-
-        def fetch_background():
-            import database as db
-            return db.search_products(query, limit=50)
-
-        def on_fetch_complete(products):
-            self.store.clear()
-            for i, p in enumerate(products, 1):
-                self.store.append([
-                    i,
-                    p.get("barcode", ""),
-                    p.get("name", ""),
-                    format_money(p.get("price", 0)),
-                    p.get("category", ""),
-                    p.get("unit", ""),
-                    p.get("id", 0),
-                    p,
-                ])
-
-        def on_fetch_error(error_msg):
-            logger.error(f"Background search failed: {error_msg}")
-
-        if self.app and self.app.workqueue:
-            self.app.workqueue.async_op(fetch_background, on_result=on_fetch_complete, on_error=on_fetch_error)
-        else:
-            try:
-                on_fetch_complete(fetch_background())
-            except Exception as e:
-                on_fetch_error(str(e))
-
-    def _on_row_activated(self, tree, path, column):
-        it = self.store.get_iter(path)
-        product = self.store.get_value(it, 7)
-        self._show_edit_dialog(product)
+        self._apply_filters()
 
     def _on_add(self, btn):
         self._show_edit_dialog(None)
+
+    def _delete_product(self, product):
+        name = product.get("name", "")
+        confirm = Gtk.MessageDialog(
+            transient_for=self.get_toplevel(),
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text=f"'{name}' барааг устгах уу?",
+        )
+        if confirm.run() == Gtk.ResponseType.YES:
+            try:
+                import database as db
+                db.delete_product(product["id"])
+                db.log_audit("product_deleted", "product", entity_id=str(product["id"]), details=name)
+                self._invalidate_cache()
+            except Exception as e:
+                logger.error(f"Delete failed: {e}")
+            self._load_data()
+        confirm.destroy()
 
     def _show_edit_dialog(self, product):
         is_new = product is None
@@ -196,7 +285,6 @@ class ProductsScreen(Gtk.Box):
         )
         dialog.set_default_size(400, 380)
         content = dialog.get_content_area()
-        content.get_style_context().add_class("form-card")
         content.set_spacing(10)
         content.set_margin_start(20)
         content.set_margin_end(20)
@@ -235,7 +323,8 @@ class ProductsScreen(Gtk.Box):
                 for cat in categories:
                     combo.append_text(cat)
                 if product and product.get("category"):
-                    combo.set_active(categories.index(product["category"]) if product["category"] in categories else 0)
+                    idx = categories.index(product["category"]) if product["category"] in categories else 0
+                    combo.set_active(idx)
                 else:
                     combo.set_active(0)
                 entries[key] = combo
@@ -245,7 +334,8 @@ class ProductsScreen(Gtk.Box):
                 for u in ("ш", "кг", "л", "хайрцаг"):
                     combo.append_text(u)
                 if product and product.get("unit"):
-                    combo.set_active(max(0, combo.get_model().index_of(product["unit"])))
+                    units = ["ш", "кг", "л", "хайрцаг"]
+                    combo.set_active(units.index(product["unit"]) if product["unit"] in units else 0)
                 else:
                     combo.set_active(0)
                 entries[key] = combo
@@ -253,7 +343,7 @@ class ProductsScreen(Gtk.Box):
             else:
                 entry = Gtk.Entry()
                 val = str(product.get(key, default)) if product else str(default)
-                if key in ("price",):
+                if key == "price":
                     val = str(product.get(key, 0)) if product else "0"
                 entry.set_text(val)
                 if key == "price":

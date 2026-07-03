@@ -1,7 +1,6 @@
 """
 posgtk/main.py — GTK Application entry point.
 
-Main window with horizontal top navigation bar + stacked screens.
 No Flask server needed. Calls database, printer, terminal, ebarimt directly.
 """
 
@@ -33,14 +32,7 @@ _LOADING_TEXTS = {
     "settings": "Тохиргоо",
 }
 
-_NAV_ITEMS = [
-    ("🛒", "Борлуулалт", "pos"),
-    ("📋", "Түүх", "sales"),
-    ("📦", "Бараа", "products"),
-    ("🏷", "Ангилал", "categories"),
-    ("📈", "Тайлан", "reports"),
-    ("⚙️", "Тохиргоо", "settings"),
-]
+
 
 
 def _make_placeholder(name):
@@ -61,10 +53,7 @@ class POSApplication(Gtk.Application):
         self.cache = None
         self.workqueue = None
         self.theme = None
-        self.auth_verified = False
-        self.auth_time = 0
         self.clock_label = None
-        self._nav_btns = {}
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -74,10 +63,9 @@ class POSApplication(Gtk.Application):
         self._init_db()
         self._init_cache()
         self._init_workqueue()
-        self._check_auth()
 
         self.window = Gtk.ApplicationWindow(
-            application=self, title="Моност — POS Систем",
+            application=self, title="POS Систем",
             window_position=Gtk.WindowPosition.CENTER,
         )
         self.window.get_style_context().add_class("main-window-bg")
@@ -88,9 +76,6 @@ class POSApplication(Gtk.Application):
         self.window.set_default_size(scaled_px(1024), scaled_px(640))
 
         main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
-        top_nav = self._build_top_nav()
-        main_vbox.pack_start(top_nav, False, False, 0)
 
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
@@ -116,7 +101,6 @@ class POSApplication(Gtk.Application):
         self.window.maximize()
         self.window.show_all()
         GLib.idle_add(self._show_pos)
-        self._activate_nav("pos")
 
         self.window.connect("realize", self._on_window_realized)
 
@@ -159,87 +143,12 @@ class POSApplication(Gtk.Application):
             cat_css = self.cache.generate_category_css()
             self.theme.append_css(cat_css)
 
-    def _check_auth(self):
-        try:
-            import database as db
-            settings = db.get_all_settings()
-            auto = settings.get("auto_admin_session", "true") == "true"
-            hash_set = bool(settings.get("admin_pin_hash", ""))
-            if auto and not hash_set:
-                self.auth_verified = True
-                self.auth_time = time.time()
-                return
-            if not hash_set:
-                self.auth_verified = True
-                self.auth_time = time.time()
-                return
-        except Exception:
-            pass
-        self.auth_verified = True
-
-    def _build_top_nav(self):
-        nav = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        nav.get_style_context().add_class("top-nav-bar")
-        nav.set_margin_start(scaled_px(20))
-        nav.set_margin_end(scaled_px(20))
-
-        brand = Gtk.Label(label="Моност")
-        brand.get_style_context().add_class("top-nav-brand")
-        brand.set_halign(Gtk.Align.START)
-        nav.pack_start(brand, False, False, 0)
-
-        nav_links_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(4))
-        nav_links_box.set_halign(Gtk.Align.CENTER)
-        nav_links_box.set_hexpand(True)
-        nav_links_box.set_margin_start(scaled_px(20))
-
-        for icon, label, name in _NAV_ITEMS:
-            btn = Gtk.Button(label=f"{icon}  {label}")
-            btn.set_relief(Gtk.ReliefStyle.NONE)
-            btn.get_style_context().add_class("top-nav-link")
-            btn.set_name(name)
-            btn.connect("clicked", self._on_nav_clicked, name)
-            nav_links_box.pack_start(btn, False, False, 0)
-            self._nav_btns[name] = btn
-
-        nav.pack_start(nav_links_box, True, True, 0)
-
-        right_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(10))
-        right_box.set_halign(Gtk.Align.END)
-
-        self.clock_label = Gtk.Label(label="--:--:--")
-        self.clock_label.get_style_context().add_class("clock-label")
-        right_box.pack_start(self.clock_label, False, False, 0)
-        self._update_clock()
-        GLib.timeout_add(1000, self._update_clock)
-
-        lock_btn = Gtk.Button.new_from_icon_name(
-            "system-lock-screen", Gtk.IconSize.SMALL_TOOLBAR
-        )
-        lock_btn.set_relief(Gtk.ReliefStyle.NONE)
-        lock_btn.set_tooltip_text("Түгжих")
-        lock_btn.connect("clicked", self._on_lock)
-        right_box.pack_start(lock_btn, False, False, 0)
-
-        nav.pack_start(right_box, False, False, 0)
-
-        return nav
-
-    def _on_nav_clicked(self, btn, name):
+    def _switch_screen(self, name):
         if name == "pos":
             self._show_pos()
-            self._activate_nav("pos")
             return
         self._ensure_screen_imported(name)
         self.stack.set_visible_child_name(name)
-        self._activate_nav(name)
-
-    def _activate_nav(self, active_name):
-        for name, btn in self._nav_btns.items():
-            if name == active_name:
-                btn.get_style_context().add_class("active")
-            else:
-                btn.get_style_context().remove_class("active")
 
     def _ensure_screen_imported(self, name):
         if name in _IMPORTED_SCREENS:
@@ -290,16 +199,6 @@ class POSApplication(Gtk.Application):
             now = datetime.now()
             self.clock_label.set_text(now.strftime("%H:%M:%S"))
         return True
-
-    def _on_lock(self, btn):
-        from posgtk.login import LoginDialog
-        self.auth_verified = False
-        dialog = LoginDialog(parent=self.window)
-        response = dialog.run()
-        if response == Gtk.ResponseType.OK and dialog.authenticated:
-            self.auth_verified = True
-            self.auth_time = time.time()
-        dialog.destroy()
 
     def _on_key_press(self, widget, event):
         keyname = Gdk.keyval_name(event.keyval)

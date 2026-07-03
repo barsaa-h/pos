@@ -138,7 +138,7 @@ class POSScreen(Gtk.Box):
     def _build_right_panel(self):
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         right.get_style_context().add_class("cart-panel")
-        right.set_size_request(scaled_px(380), -1)
+        right.set_size_request(400, -1)
         right.set_vexpand(True)
 
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -152,23 +152,6 @@ class POSScreen(Gtk.Box):
         self.cart_count_label.get_style_context().add_class("cart-count-badge")
         header_box.pack_start(self.cart_count_label, False, False, 0)
 
-        self.tax_mode_label = Gtk.Label(label="")
-        self.tax_mode_label.set_tooltip_text("eBarimt төрөл (F7)")
-        self.tax_mode_label.get_style_context().add_class("tax-mode-badge")
-        header_box.pack_start(self.tax_mode_label, False, False, 0)
-
-        ebarimt_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        ebarimt_btn = Gtk.Button(label="\u26a0")
-        ebarimt_btn.set_tooltip_text("\u0425\u0443\u043b\u0434\u0430\u0430\u043d\u0434 \u0430\u043c\u0436\u0438\u043b\u0442\u0433\u04af\u0439 eBarimt")
-        ebarimt_btn.set_relief(Gtk.ReliefStyle.NONE)
-        ebarimt_btn.connect("clicked", lambda b: self._show_ebarimt_pending())
-        ebarimt_box.pack_start(ebarimt_btn, False, False, 0)
-        self.ebarimt_badge = Gtk.Label(label="")
-        self.ebarimt_badge.get_style_context().add_class("badge")
-        self.ebarimt_badge.get_style_context().add_class("amber")
-        ebarimt_box.pack_start(self.ebarimt_badge, False, False, 0)
-        header_box.pack_start(ebarimt_box, False, False, 0)
-
         held_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         held_btn = Gtk.Button(label="📋")
         held_btn.set_tooltip_text("\u0425\u04af\u043b\u044d\u044d\u043b\u0433\u044d\u0441\u044d\u043d \u0437\u0430\u0445\u0438\u0430\u043b\u0433\u0443\u0443\u0434")
@@ -180,12 +163,6 @@ class POSScreen(Gtk.Box):
         self.held_badge.get_style_context().add_class("amber")
         held_box.pack_start(self.held_badge, False, False, 0)
         header_box.pack_end(held_box, False, False, 0)
-
-        clear_btn = Gtk.Button(label="🗑")
-        clear_btn.set_tooltip_text("Цэвэрлэх (ESC)")
-        clear_btn.set_relief(Gtk.ReliefStyle.NONE)
-        clear_btn.connect("clicked", lambda b: self._clear_cart(confirm=True))
-        header_box.pack_end(clear_btn, False, False, 0)
 
         right.pack_start(header_box, False, False, 0)
 
@@ -224,9 +201,6 @@ class POSScreen(Gtk.Box):
         hold_btn.get_style_context().add_class("hold-btn")
         hold_btn.connect("clicked", lambda b: self._on_hold_order_clicked())
         btn_box.pack_start(hold_btn, False, False, 0)
-        self.held_count_label = Gtk.Label(label="")
-        self.held_count_label.get_style_context().add_class("badge")
-        btn_box.pack_start(self.held_count_label, False, False, 0)
 
         right.pack_start(btn_box, False, False, 0)
 
@@ -1858,12 +1832,14 @@ class POSScreen(Gtk.Box):
 ║ F2  — Бэлнээр төлөх         ║
 ║ F4  — Картаар төлөх         ║
 ║ F5  — QR төлбөр             ║
+║ F6  — Бүртгэлгүй бараа       ║
 ║ F3  — Захиалга хүлээлгэх    ║
-║ ESC — Сагс цэвэрлэх         ║
-║ Ctrl+F — Хайлт              ║
 ║ →←↑↓  — Бараа сонгох        ║
 ║ Enter — Сонгосон бараа нэмэх║
+║ ESC — Цонх хаах / Сагс цэвэрлэх║
+║ Ctrl+F — Хайлт              ║
 ║ 1-6   — Түргэн дүн          ║
+║ 0     — Яг дүн (бэлэн)      ║
 ╚══════════════════════════════╝"""
         d = Gtk.MessageDialog(
             transient_for=self.get_toplevel(),

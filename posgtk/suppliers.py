@@ -1,5 +1,5 @@
 """
-posgtk/suppliers.py — Supplier management.
+posgtk/suppliers.py — Supplier management with card grid layout.
 """
 import logging
 import gi
@@ -33,25 +33,16 @@ class SuppliersScreen(Gtk.Box):
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
 
-        self.store = Gtk.ListStore(str, str, str, str, str, int)
-        self.tree = Gtk.TreeView(model=self.store)
-        self.tree.get_style_context().add_class("data-table")
-        self.tree.get_style_context().add_class("treeview-table")
+        self._grid = Gtk.FlowBox()
+        self._grid.set_selection_mode(Gtk.SelectionMode.NONE)
+        self._grid.set_column_spacing(16)
+        self._grid.set_row_spacing(16)
+        self._grid.set_margin_start(16)
+        self._grid.set_margin_end(16)
+        self._grid.set_margin_top(16)
+        self._grid.set_margin_bottom(16)
 
-        cols = [
-            ("Нэр", 0, 150), ("Холбоо барих", 1, 120),
-            ("Утас", 2, 120), ("Имэйл", 3, 150),
-            ("Хаяг", 4, 200),
-        ]
-        for title, col_id, width in cols:
-            renderer = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END)
-            col = Gtk.TreeViewColumn(title, renderer, text=col_id)
-            col.set_resizable(True)
-            col.set_min_width(width)
-            self.tree.append_column(col)
-
-        self.tree.connect("row-activated", self._on_row_activated)
-        scrolled.add(self.tree)
+        scrolled.add(self._grid)
         panel.pack_start(scrolled, True, True, 0)
         self.pack_start(panel, True, True, 0)
 
@@ -59,29 +50,129 @@ class SuppliersScreen(Gtk.Box):
         GLib.idle_add(self._load_data)
 
     def _load_data(self, *args):
-        self.store.clear()
+        for child in self._grid.get_children():
+            self._grid.remove(child)
+
         try:
             import database as db
             suppliers = db.get_suppliers(include_inactive=True)
         except Exception:
             suppliers = []
-        for s in suppliers:
-            self.store.append([
-                s.get("name", ""),
-                s.get("contact_person", ""),
-                s.get("phone", ""),
-                s.get("email", ""),
-                s.get("address", ""),
-                s.get("id", 0),
-            ])
 
-    def _on_row_activated(self, tree, path, col):
-        it = self.store.get_iter(path)
-        sid = self.store.get_value(it, 5)
-        self._show_edit_dialog(sid)
+        if not suppliers:
+            empty = Gtk.Label(label="Нийлүүлэгч бүртгэгдээгүй байна.")
+            empty.get_style_context().add_class("text-muted")
+            empty.set_margin_top(48)
+            self._grid.add(empty)
+            self._grid.show_all()
+            return
+
+        for s in suppliers:
+            card = self._make_card(s)
+            self._grid.add(card)
+
+        self._grid.show_all()
+
+    def _make_card(self, s):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        card.get_style_context().add_class("product-card-item")
+        card.set_size_request(280, -1)
+
+        if not s.get("is_active", True):
+            card.set_opacity(0.5)
+
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        icon_lbl = Gtk.Label(label="🚛")
+        icon_lbl.get_style_context().add_class("product-icon")
+        header_box.pack_start(icon_lbl, False, False, 0)
+
+        info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        info_box.set_hexpand(True)
+        name_lbl = Gtk.Label(label=s.get("name", ""), xalign=0)
+        name_lbl.get_style_context().add_class("product-card-name")
+        name_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+        name_lbl.set_max_width_chars(25)
+        info_box.pack_start(name_lbl, False, False, 0)
+
+        contact = s.get("contact_person", "")
+        if contact:
+            contact_lbl = Gtk.Label(label=f"👤 {contact}", xalign=0)
+            contact_lbl.get_style_context().add_class("product-card-barcode")
+            info_box.pack_start(contact_lbl, False, False, 0)
+
+        header_box.pack_start(info_box, True, True, 0)
+        card.pack_start(header_box, False, False, 0)
+
+        meta_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        phone = s.get("phone", "")
+        if phone:
+            phone_lbl = Gtk.Label(label=f"📞 {phone}")
+            phone_lbl.get_style_context().add_class("text-muted")
+            meta_box.pack_start(phone_lbl, False, False, 0)
+        email = s.get("email", "")
+        if email:
+            email_lbl = Gtk.Label(label=f"✉️ {email}")
+            email_lbl.get_style_context().add_class("text-muted")
+            meta_box.pack_start(email_lbl, False, False, 0)
+        if not s.get("is_active", True):
+            badge = Gtk.Label(label="Идэвхгүй")
+            badge.get_style_context().add_class("status-badge")
+            badge.get_style_context().add_class("status-failed")
+            meta_box.pack_start(badge, False, False, 0)
+        if phone or email or not s.get("is_active", True):
+            card.pack_start(meta_box, False, False, 0)
+
+        address = s.get("address", "")
+        if address:
+            addr_lbl = Gtk.Label(label=f"📍 {address}", xalign=0)
+            addr_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+            addr_lbl.set_max_width_chars(35)
+            card.pack_start(addr_lbl, False, False, 0)
+
+        notes = s.get("notes", "")
+        if notes:
+            notes_lbl = Gtk.Label(label=f"📝 {notes}", xalign=0)
+            notes_lbl.set_ellipsize(Pango.EllipsizeMode.END)
+            notes_lbl.set_max_width_chars(35)
+            notes_lbl.get_style_context().add_class("text-muted")
+            card.pack_start(notes_lbl, False, False, 0)
+
+        actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        actions_box.get_style_context().add_class("product-card-actions")
+
+        edit_btn = Gtk.Button(label="✏️ Засах")
+        edit_btn.get_style_context().add_class("category-btn")
+        sid = s.get("id")
+        edit_btn.connect("clicked", lambda b: self._show_edit_dialog(sid))
+        actions_box.pack_start(edit_btn, False, False, 0)
+
+        del_btn = Gtk.Button(label="🗑 Устгах")
+        del_btn.get_style_context().add_class("destructive-action")
+        del_btn.connect("clicked", lambda b: self._do_delete(sid))
+        actions_box.pack_start(del_btn, False, False, 0)
+
+        card.pack_start(actions_box, False, False, 0)
+        return card
 
     def _on_add(self, btn):
         self._show_edit_dialog(None)
+
+    def _do_delete(self, sid):
+        confirm = Gtk.MessageDialog(
+            transient_for=self.get_toplevel(),
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text="Устгах уу?",
+        )
+        if confirm.run() == Gtk.ResponseType.YES:
+            try:
+                import database as db
+                db.delete_supplier(sid)
+            except Exception as e:
+                logger.error(f"Delete supplier failed: {e}")
+            self._load_data()
+        confirm.destroy()
 
     def _show_edit_dialog(self, sid):
         try:

@@ -1,8 +1,9 @@
 """
-posgtk/sales.py — Sales history with pagination and detail view.
+posgtk/sales.py — Sales history with pagination, quick filters, and detail view.
 """
 import logging
 import json
+from datetime import datetime, timedelta
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Pango
@@ -10,6 +11,25 @@ from gi.repository import Gtk, GLib, Pango
 from posgtk.widgets import format_money
 
 logger = logging.getLogger("pos.gtk.sales")
+
+
+def _today_str():
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def _yesterday_str():
+    return (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def _week_start_str():
+    today = datetime.now()
+    monday = today - timedelta(days=today.weekday())
+    return monday.strftime("%Y-%m-%d")
+
+
+def _month_start_str():
+    today = datetime.now()
+    return today.replace(day=1).strftime("%Y-%m-%d")
 
 
 class SalesScreen(Gtk.Box):
@@ -25,6 +45,27 @@ class SalesScreen(Gtk.Box):
         header.get_style_context().add_class("page-header")
         header.set_halign(Gtk.Align.START)
         self.pack_start(header, False, False, 0)
+
+        qf_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        qf_box.set_margin_start(16)
+        qf_box.set_margin_end(16)
+        qf_box.set_margin_top(8)
+        qf_box.set_margin_bottom(4)
+
+        self._qf_buttons = []
+        for label, handler in [
+            ("Өнөөдөр", self._qf_today),
+            ("Өчигдөр", self._qf_yesterday),
+            ("Энэ долоо хоног", self._qf_week),
+            ("Энэ сар", self._qf_month),
+        ]:
+            btn = Gtk.Button(label=label)
+            btn.get_style_context().add_class("quick-filter-btn")
+            btn.connect("clicked", handler)
+            qf_box.pack_start(btn, False, False, 0)
+            self._qf_buttons.append(btn)
+
+        self.pack_start(qf_box, False, False, 0)
 
         filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         filter_box.get_style_context().add_class("search-toolbar")
@@ -355,5 +396,25 @@ class SalesScreen(Gtk.Box):
         self._date_to = ""
         self.date_from_entry.set_text("")
         self.date_to_entry.set_text("")
+        self._page = 1
+        self._load_data()
+
+    def _qf_today(self, btn):
+        self._set_qf_dates(_today_str(), _today_str())
+
+    def _qf_yesterday(self, btn):
+        self._set_qf_dates(_yesterday_str(), _yesterday_str())
+
+    def _qf_week(self, btn):
+        self._set_qf_dates(_week_start_str(), _today_str())
+
+    def _qf_month(self, btn):
+        self._set_qf_dates(_month_start_str(), _today_str())
+
+    def _set_qf_dates(self, date_from, date_to):
+        self.date_from_entry.set_text(date_from)
+        self.date_to_entry.set_text(date_to)
+        self._date_from = date_from
+        self._date_to = date_to
         self._page = 1
         self._load_data()

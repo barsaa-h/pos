@@ -77,6 +77,7 @@ class CategoriesScreen(Gtk.Box):
         icon = cat.get("icon", "📦")
         color = cat.get("color", "#6B7280")
         cat_id = cat.get("id")
+        sort_order = cat.get("sort_order", 0)
 
         row = Gtk.ListBoxRow()
         row.get_style_context().add_class("data-row")
@@ -85,6 +86,13 @@ class CategoriesScreen(Gtk.Box):
         hbox.set_margin_end(8)
         hbox.set_margin_top(8)
         hbox.set_margin_bottom(8)
+
+        # # (id) column
+        id_label = Gtk.Label(label=str(cat_id) if cat_id else "")
+        id_label.set_size_request(30, -1)
+        id_label.set_xalign(0.5)
+        id_label.get_style_context().add_class("dim-label")
+        hbox.pack_start(id_label, False, False, 0)
 
         color_indicator = Gtk.Box()
         color_indicator.get_style_context().add_class("category-color-indicator")
@@ -117,6 +125,13 @@ class CategoriesScreen(Gtk.Box):
         color_btn.set_size_request(32, 32)
         color_btn.connect("color-set", lambda b: self._update_color(cat_id, b.get_rgba()))
         hbox.pack_start(color_btn, False, False, 0)
+
+        # Sort order spin button
+        sort_btn = Gtk.SpinButton.new_with_range(0, 999, 1)
+        sort_btn.set_value(sort_order)
+        sort_btn.set_size_request(60, -1)
+        sort_btn.connect("value-changed", lambda b, c=cat: self._update_sort_order(c["id"], b.get_value_as_int()))
+        hbox.pack_start(sort_btn, False, False, 0)
 
         edit_btn = Gtk.Button(label="✏️")
         edit_btn.set_relief(Gtk.ReliefStyle.NONE)
@@ -154,6 +169,16 @@ class CategoriesScreen(Gtk.Box):
         entry.set_placeholder_text("Ангиллын нэр")
         entry.set_activates_default(True)
         content.add(entry)
+
+        sort_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        sort_label = Gtk.Label(label="Эрэмбэ:")
+        sort_label.set_halign(Gtk.Align.START)
+        sort_box.pack_start(sort_label, False, False, 0)
+        sort_spin = Gtk.SpinButton.new_with_range(0, 999, 1)
+        sort_spin.set_value(0)
+        sort_box.pack_start(sort_spin, False, False, 0)
+        content.add(sort_box)
+
         dialog.add_button("Цуцлах", Gtk.ResponseType.CANCEL)
         save_btn = dialog.add_button("Үүсгэх", Gtk.ResponseType.OK)
         save_btn.get_style_context().add_class("suggested-action")
@@ -165,7 +190,7 @@ class CategoriesScreen(Gtk.Box):
                     import database as db
                     icon = CAT_ICONS.get(name, "📦")
                     color = CAT_COLORS.get(name, "#6B7280")
-                    db.create_category(name, icon=icon, color=color)
+                    db.create_category(name, icon=icon, color=color, sort_order=sort_spin.get_value_as_int())
                     if self.app and self.app.cache:
                         self.app.cache.invalidate()
                 except Exception as e:
@@ -196,6 +221,16 @@ class CategoriesScreen(Gtk.Box):
         entry.set_text(cat.get("name", ""))
         entry.set_activates_default(True)
         content.add(entry)
+
+        sort_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        sort_label = Gtk.Label(label="Эрэмбэ:")
+        sort_label.set_halign(Gtk.Align.START)
+        sort_box.pack_start(sort_label, False, False, 0)
+        sort_spin = Gtk.SpinButton.new_with_range(0, 999, 1)
+        sort_spin.set_value(cat.get("sort_order", 0))
+        sort_box.pack_start(sort_spin, False, False, 0)
+        content.add(sort_box)
+
         dialog.add_button("Цуцлах", Gtk.ResponseType.CANCEL)
         save_btn = dialog.add_button("Хадгалах", Gtk.ResponseType.OK)
         save_btn.get_style_context().add_class("suggested-action")
@@ -205,7 +240,7 @@ class CategoriesScreen(Gtk.Box):
             if name:
                 try:
                     import database as db
-                    db.update_category(cat["id"], name=name)
+                    db.update_category(cat["id"], name=name, sort_order=sort_spin.get_value_as_int())
                     if self.app and self.app.cache:
                         self.app.cache.invalidate()
                 except Exception as e:
@@ -224,6 +259,15 @@ class CategoriesScreen(Gtk.Box):
                 self.app.cache.invalidate()
         except Exception as e:
             logger.error(f"Update category color failed: {e}")
+
+    def _update_sort_order(self, cat_id, sort_order):
+        try:
+            import database as db
+            db.update_category(cat_id, sort_order=sort_order)
+            if self.app and self.app.cache:
+                self.app.cache.invalidate()
+        except Exception as e:
+            logger.error(f"Update category sort_order failed: {e}")
 
     def _pick_icon(self, cat, button):
         icons = "🍖🥤🍬🧹🚬🏠📦💊📚👟🎮🎁🍔🍕🍩"

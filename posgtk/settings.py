@@ -1,7 +1,7 @@
 """
-posgtk/settings.py — Full settings screen with tabs.
+posgtk/settings.py — Settings screen with card-based layout matching web.
 
-Store info, printer, terminal, eBarimt, QPay, security, display, system.
+Store info, payment, printer, display, security sections.
 All changes go to DB via db.set_settings().
 """
 
@@ -21,40 +21,40 @@ class SettingsScreen(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.app = app
 
-        notebook = Gtk.Notebook()
-        notebook.set_margin_start(8)
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        header_box.set_margin_start(16)
+        header_box.set_margin_end(16)
+        header_box.set_margin_top(12)
+        header_box.set_margin_bottom(8)
 
-        notebook.set_margin_end(8)
+        header = Gtk.Label(label="⚙️ Тохиргоо")
+        header.get_style_context().add_class("page-title")
+        header.set_halign(Gtk.Align.START)
+        header_box.pack_start(header, True, True, 0)
+        self.pack_start(header_box, False, False, 0)
 
-        notebook.set_margin_top(8)
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
 
-        notebook.set_margin_bottom(8)
+        form_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        form_box.set_margin_start(16)
+        form_box.set_margin_end(16)
+        form_box.set_margin_bottom(12)
 
-        self._store_tab = self._make_store_tab()
-        self._printer_tab = self._make_printer_tab()
-        self._payment_tab = self._make_payment_tab()
-        self._tax_tab = self._make_tax_tab()
-        self._security_tab = self._make_security_tab()
-        self._display_tab = self._make_display_tab()
-        self._system_tab = self._make_system_tab()
+        self._build_store_section(form_box)
+        self._build_payment_section(form_box)
+        self._build_printer_section(form_box)
+        self._build_display_section(form_box)
+        self._build_security_section(form_box)
 
-        notebook.append_page(self._store_tab, Gtk.Label(label="🏪 Дэлгүүр"))
-        notebook.append_page(self._printer_tab, Gtk.Label(label="🖨 Хэвлэгч"))
-        notebook.append_page(self._payment_tab, Gtk.Label(label="💳 Төлбөр"))
-        notebook.append_page(self._tax_tab, Gtk.Label(label="🧾 eBarimt"))
-        notebook.append_page(self._security_tab, Gtk.Label(label="🔒 Хамгаалалт"))
-        notebook.append_page(self._display_tab, Gtk.Label(label="🖥 Дэлгэц"))
-        notebook.append_page(self._system_tab, Gtk.Label(label="⚙️ Систем"))
+        scrolled.add(form_box)
+        self.pack_start(scrolled, True, True, 0)
 
-        self.pack_start(notebook, True, True, 0)
-
-        save_btn = Gtk.Button(label="💾  Бүх тохиргоог хадгалах")
-        save_btn.set_margin_start(8)
-
-        save_btn.set_margin_end(8)
-
+        save_btn = Gtk.Button(label="✓ Бүх тохиргоог хадгалах")
+        save_btn.set_margin_start(16)
+        save_btn.set_margin_end(16)
         save_btn.set_margin_top(8)
-
         save_btn.set_margin_bottom(8)
         save_btn.get_style_context().add_class("suggested-action")
         save_btn.connect("clicked", self._on_save_all)
@@ -63,502 +63,228 @@ class SettingsScreen(Gtk.Box):
         self.show_all()
         GLib.idle_add(self._load_settings)
 
+    def _make_section_card(self, parent, icon, title):
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        card.get_style_context().add_class("settings-card")
+
+        title_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        title_bar.get_style_context().add_class("settings-card-title")
+        title_bar.set_margin_start(18)
+        title_bar.set_margin_end(18)
+        title_bar.set_margin_top(14)
+        title_bar.set_margin_bottom(14)
+
+        icon_label = Gtk.Label(label=icon)
+        icon_label.get_style_context().add_class("settings-card-icon")
+        title_bar.pack_start(icon_label, False, False, 0)
+
+        title_label = Gtk.Label(label=title)
+        title_label.get_style_context().add_class("settings-card-title-text")
+        title_label.set_xalign(0)
+        title_bar.pack_start(title_label, False, False, 0)
+
+        card.pack_start(title_bar, False, False, 0)
+
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        body.get_style_context().add_class("settings-section")
+        body.set_margin_start(18)
+        body.set_margin_end(18)
+        body.set_margin_top(16)
+        body.set_margin_bottom(16)
+        card.pack_start(body, False, False, 0)
+
+        parent.pack_start(card, False, False, 0)
+        return body
+
+    def _add_form_row(self, parent, label_text, widget):
+        grid = Gtk.Grid()
+        grid.set_column_spacing(16)
+        grid.set_row_spacing(12)
+
+        lbl = Gtk.Label(label=label_text, xalign=0)
+        lbl.get_style_context().add_class("form-label")
+        grid.attach(lbl, 0, 0, 1, 1)
+
+        widget.get_style_context().add_class("form-row-widget")
+        widget.set_hexpand(True)
+        grid.attach(widget, 1, 0, 1, 1)
+
+        parent.pack_start(grid, False, False, 0)
+
+    def _add_form_group(self, parent, label_text, widget):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+
+        lbl = Gtk.Label(label=label_text, xalign=0)
+        lbl.get_style_context().add_class("form-label")
+        box.pack_start(lbl, False, False, 0)
+
+        widget.get_style_context().add_class("form-row-widget")
+        widget.set_hexpand(True)
+        box.pack_start(widget, False, False, 0)
+
+        parent.pack_start(box, False, False, 0)
+
+    def _add_toggle_row(self, parent, label_text, default=False):
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        box.set_hexpand(True)
+
+        switch = Gtk.Switch()
+        switch.set_active(default)
+        switch.get_style_context().add_class("form-switch")
+        box.pack_start(switch, False, False, 0)
+
+        lbl = Gtk.Label(label=label_text, xalign=0)
+        lbl.get_style_context().add_class("toggle-text")
+        box.pack_start(lbl, True, True, 0)
+
+        parent.pack_start(box, False, False, 0)
+        return switch
+
+    def _build_store_section(self, parent):
+        body = self._make_section_card(parent, "🏪", "Дэлгүүрийн мэдээлэл")
+
+        self._store_name = Gtk.Entry()
+        self._store_name.set_placeholder_text("Дэлгүүрийн нэр")
+        self._add_form_row(body, "Дэлгүүрийн нэр:", self._store_name)
+
+        self._store_phone = Gtk.Entry()
+        self._store_phone.set_placeholder_text("Утасны дугаар")
+        self._add_form_row(body, "Утасны дугаар:", self._store_phone)
+
+        self._store_address = Gtk.Entry()
+        self._store_address.set_placeholder_text("Хаяг")
+        self._add_form_group(body, "Хаяг:", self._store_address)
+
+    def _build_payment_section(self, parent):
+        body = self._make_section_card(parent, "💳", "Төлбөрийн тохиргоо")
+
+        self._default_payment = Gtk.ComboBoxText()
+        for val, label in [("cash", "💵 Бэлэн"), ("card", "💳 Карт"), ("qr", "📱 QR"), ("split", "🔀 Холимог")]:
+            self._default_payment.append(val, label)
+        self._add_form_row(body, "Анхны төлбөрийн төрөл:", self._default_payment)
+
+        self._qr_payment_image = Gtk.Entry()
+        self._qr_payment_image.set_placeholder_text("https://... эсвэл /static/uploads/...")
+        self._add_form_group(body, "QR төлбөрийн зураг:", self._qr_payment_image)
+
+    def _build_printer_section(self, parent):
+        body = self._make_section_card(parent, "🖨", "Баримт тохиргоо")
+
+        self._printer_port = Gtk.Entry()
+        self._printer_port.set_placeholder_text("/dev/usb/lp0")
+        self._add_form_group(body, "Хэвлэгчийн порт:", self._printer_port)
+
+        self._receipt_footer = Gtk.Entry()
+        self._receipt_footer.set_placeholder_text("Баримтын хөл хэсэг")
+        self._add_form_group(body, "Баримтын хөл хэсэг:", self._receipt_footer)
+
+        self._auto_print = self._add_toggle_row(body, "Борлуулалтын дараа автомат хэвлэх", True)
+
+        self._show_vat = self._add_toggle_row(body, "НӨАТ-ыг тусад нь харуулах", False)
+
+        self._receipt_width = Gtk.SpinButton.new_with_range(24, 48, 1)
+        self._receipt_width.set_value(32)
+        self._add_form_group(body, "Баримтын өргөн (тэмдэгт/мөр):", self._receipt_width)
+
+    def _build_display_section(self, parent):
+        body = self._make_section_card(parent, "🖥", "Дэлгэцийн тохиргоо")
+
+        self._show_stock_warnings = self._add_toggle_row(body, "Бага/дууссан барааг тэмдэглэх", True)
+
+        self._discounts_enabled = self._add_toggle_row(body, "Хямдрал идэвхжүүлэх", False)
+
+        self._theme = Gtk.ComboBoxText()
+        for val, label in [("auto", "🌓 Авто"), ("light", "☀️ Гэрэлтэй"), ("dark", "🌙 Бараан")]:
+            self._theme.append(val, label)
+        self._add_form_row(body, "Өнгөний горим:", self._theme)
+
+        self._customer_display_timeout = Gtk.SpinButton.new_with_range(5, 120, 1)
+        self._add_form_row(body, "Idle хугацаа (сек):", self._customer_display_timeout)
+
+        self._customer_idle_message = Gtk.Entry()
+        self._customer_idle_message.set_placeholder_text("Тавтай морилно уу")
+        self._add_form_group(body, "Idle мессеж:", self._customer_idle_message)
+
+    def _build_security_section(self, parent):
+        body = self._make_section_card(parent, "🔒", "Хамгаалалт ба систем")
+
+        self._admin_session_timeout = Gtk.SpinButton.new_with_range(10, 1440, 10)
+        self._add_form_row(body, "Админ сессын хугацаа (мин):", self._admin_session_timeout)
+
+        self._return_window_days = Gtk.SpinButton.new_with_range(1, 365, 1)
+        self._add_form_row(body, "Буцаалт хийх хоног:", self._return_window_days)
+
+        self._backup_retention_days = Gtk.SpinButton.new_with_range(7, 365, 1)
+        self._add_form_group(body, "Нөөц хадгалах хоног:", self._backup_retention_days)
+
     def _load_settings(self):
         try:
             import database as db
             self._settings = db.get_all_settings()
         except Exception:
             self._settings = {}
-        self._populate_store()
-        self._populate_printer()
-        self._populate_payment()
-        self._populate_tax()
-        self._populate_security()
-        self._populate_display()
 
-    def _setting(self, key, default=""):
-        return self._settings.get(key, default)
-
-    def _make_store_tab(self):
-        grid = Gtk.Grid(column_spacing=8, row_spacing=8, margin=12)
-        self._store_fields = {
-            "store_name": ("Дэлгүүрийн нэр", ""),
-            "store_address": ("Хаяг", ""),
-            "store_phone": ("Утас", ""),
-            "receipt_footer": ("Баримтын хөл хэсэг", ""),
-        }
-        row = 0
-        for key, (label, _) in self._store_fields.items():
-            lbl = Gtk.Label(label=label + ":", xalign=1)
-            grid.attach(lbl, 0, row, 1, 1)
-            entry = Gtk.Entry()
-            grid.attach(entry, 1, row, 1, 1)
-            setattr(self, f"_store_{key}", entry)
-            row += 1
-
-        lbl = Gtk.Label(label="Баримтын өргөн (тэмдэгт):", xalign=1)
-        grid.attach(lbl, 0, row, 1, 1)
-        self._receipt_width_spin = Gtk.SpinButton.new_with_range(24, 48, 1)
-        grid.attach(self._receipt_width_spin, 1, row, 1, 1)
-        row += 1
-
-        self._show_vat_switch = Gtk.Switch()
-        grid.attach(Gtk.Label(label="НӨАТ-ыг баримтанд харуулах:", xalign=1), 0, row, 1, 1)
-        grid.attach(self._show_vat_switch, 1, row, 1, 1)
-        row += 1
-
-        return grid
-
-    def _populate_store(self):
-        for key in self._store_fields:
-            entry = getattr(self, f"_store_{key}", None)
-            if entry:
-                entry.set_text(self._setting(key, ""))
-        try:
-            self._receipt_width_spin.set_value(int(self._setting("receipt_width", "32") or 32))
-        except ValueError:
-            self._receipt_width_spin.set_value(32)
-        self._show_vat_switch.set_active(self._setting("show_vat_on_receipt", "false") == "true")
-
-    def _make_printer_tab(self):
-        grid = Gtk.Grid(column_spacing=8, row_spacing=8, margin=12)
-        row = 0
-
-        lbl = Gtk.Label(label="Хэвлэгчийн порт:", xalign=1)
-        grid.attach(lbl, 0, row, 1, 1)
-        self._printer_port_entry = Gtk.Entry()
-        self._printer_port_entry.set_placeholder_text("/dev/usb/lp0 (auto бол хоосон)")
-        grid.attach(self._printer_port_entry, 1, row, 1, 1)
-        row += 1
-
-        self._auto_print_switch = Gtk.Switch()
-        lbl2 = Gtk.Label(label="Автомат хэвлэх:", xalign=1)
-        grid.attach(lbl2, 0, row, 1, 1)
-        grid.attach(self._auto_print_switch, 1, row, 1, 1)
-        row += 1
-
-        return grid
-
-    def _populate_printer(self):
-        self._printer_port_entry.set_text(self._setting("printer_port", ""))
-        self._auto_print_switch.set_active(self._setting("auto_print_receipt", "true") == "true")
-
-    def _make_payment_tab(self):
-        grid = Gtk.Grid(column_spacing=8, row_spacing=8, margin=12)
-        row = 0
-
-        self._terminal_enabled_switch = Gtk.Switch()
-        grid.attach(Gtk.Label(label="PAX терминал:", xalign=1), 0, row, 1, 1)
-        grid.attach(self._terminal_enabled_switch, 1, row, 1, 1)
-        row += 1
-
-        grid.attach(Gtk.Label(label="Терминал IP:", xalign=1), 0, row, 1, 1)
-        self._terminal_ip_entry = Gtk.Entry()
-        grid.attach(self._terminal_ip_entry, 1, row, 1, 1)
-        row += 1
-
-        grid.attach(Gtk.Label(label="Терминал порт:", xalign=1), 0, row, 1, 1)
-        self._terminal_port_entry = Gtk.Entry()
-        self._terminal_port_entry.set_text("10009")
-        grid.attach(self._terminal_port_entry, 1, row, 1, 1)
-        row += 1
-
-        self._discounts_switch = Gtk.Switch()
-        grid.attach(Gtk.Label(label="Хөнгөлөлт:", xalign=1), 0, row, 1, 1)
-        grid.attach(self._discounts_switch, 1, row, 1, 1)
-        row += 1
-
-        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        sep.set_margin_top(8)
-        sep.set_margin_bottom(8)
-        grid.attach(sep, 0, row, 2, 1)
-        row += 1
-
-        self._qpay_enabled_switch = Gtk.Switch()
-        grid.attach(Gtk.Label(label="QPay:", xalign=1), 0, row, 1, 1)
-        grid.attach(self._qpay_enabled_switch, 1, row, 1, 1)
-        row += 1
-
-        grid.attach(Gtk.Label(label="QPay Client ID:", xalign=1), 0, row, 1, 1)
-        self._qpay_client_id_entry = Gtk.Entry()
-        grid.attach(self._qpay_client_id_entry, 1, row, 1, 1)
-        row += 1
-
-        grid.attach(Gtk.Label(label="QPay Client Secret:", xalign=1), 0, row, 1, 1)
-        self._qpay_client_secret_entry = Gtk.Entry()
-        self._qpay_client_secret_entry.set_visibility(False)
-        grid.attach(self._qpay_client_secret_entry, 1, row, 1, 1)
-        row += 1
-
-        grid.attach(Gtk.Label(label="QPay сервер:", xalign=1), 0, row, 1, 1)
-        self._qpay_base_url_entry = Gtk.Entry()
-        self._qpay_base_url_entry.set_placeholder_text("https://merchant.qpay.mn/v2")
-        grid.attach(self._qpay_base_url_entry, 1, row, 1, 1)
-        row += 1
-
-        self._qpay_allow_partial_switch = Gtk.Switch()
-        grid.attach(Gtk.Label(label="Хэсэгчилсэн төлбөр зөвшөөрөх:", xalign=1), 0, row, 1, 1)
-        grid.attach(self._qpay_allow_partial_switch, 1, row, 1, 1)
-        row += 1
-
-        self._qpay_allow_exceed_switch = Gtk.Switch()
-        grid.attach(Gtk.Label(label="Илүү төлбөр зөвшөөрөх:", xalign=1), 0, row, 1, 1)
-        grid.attach(self._qpay_allow_exceed_switch, 1, row, 1, 1)
-        row += 1
-
-        return grid
-
-    def _populate_payment(self):
-        self._terminal_enabled_switch.set_active(self._setting("terminal_enabled") == "true")
-        self._terminal_ip_entry.set_text(self._setting("terminal_ip", ""))
-        self._terminal_port_entry.set_text(self._setting("terminal_port", "10009"))
-        self._discounts_switch.set_active(self._setting("discounts_enabled") == "true")
-        self._qpay_enabled_switch.set_active(self._setting("qpay_enabled") == "true")
-        self._qpay_client_id_entry.set_text(self._setting("qpay_client_id", ""))
-        self._qpay_client_secret_entry.set_text(self._setting("qpay_client_secret", ""))
-        self._qpay_base_url_entry.set_text(self._setting("qpay_base_url", "https://merchant.qpay.mn/v2"))
-        self._qpay_allow_partial_switch.set_active(self._setting("qpay_allow_partial") == "true")
-        self._qpay_allow_exceed_switch.set_active(self._setting("qpay_allow_exceed") == "true")
-
-    def _make_tax_tab(self):
-        grid = Gtk.Grid(column_spacing=8, row_spacing=8, margin=12)
-        row = 0
-        grid.attach(Gtk.Label(label="eBarimt төлөв:", xalign=1), 0, row, 1, 1)
-        self._ebarimt_status_label = Gtk.Label(label="Шалгаж байна...", xalign=0)
-        grid.attach(self._ebarimt_status_label, 1, row, 1, 1)
-        row += 1
-
-        grid.attach(Gtk.Label(label="API URL:", xalign=1), 0, row, 1, 1)
-        self._ebarimt_api_url_entry = Gtk.Entry()
-        self._ebarimt_api_url_entry.set_placeholder_text("http://192.168.1.100:8080")
-        grid.attach(self._ebarimt_api_url_entry, 1, row, 1, 1)
-        row += 1
-
-        grid.attach(Gtk.Label(label="ТТД (Татвар төлөгчийн дугаар):", xalign=1), 0, row, 1, 1)
-        self._ebarimt_merchant_tin_entry = Gtk.Entry()
-        self._ebarimt_merchant_tin_entry.set_placeholder_text("0000000000")
-        grid.attach(self._ebarimt_merchant_tin_entry, 1, row, 1, 1)
-        row += 1
-
-        grid.attach(Gtk.Label(label="TTD дугаар:", xalign=1), 0, row, 1, 1)
-        self._ebarimt_ttd_entry = Gtk.Entry()
-        grid.attach(self._ebarimt_ttd_entry, 1, row, 1, 1)
-        row += 1
-
-        grid.attach(Gtk.Label(label="Салбарын ID:", xalign=1), 0, row, 1, 1)
-        self._ebarimt_branch_id_entry = Gtk.Entry()
-        grid.attach(self._ebarimt_branch_id_entry, 1, row, 1, 1)
-        row += 1
-
-        return grid
-
-    def _populate_tax(self):
-        from config import is_ebarimt_configured
-        configured = is_ebarimt_configured()
-        self._ebarimt_status_label.set_label(
-            "\u2705 \u0422\u043e\u0445\u0438\u0440\u0443\u0443\u043b\u0441\u0430\u043d" if configured else "\u26a0\ufe0f \u0422\u043e\u0445\u0438\u0440\u0443\u0443\u043b\u0430\u0430\u0433\u04af\u0439"
-        )
-        self._ebarimt_api_url_entry.set_text(self._setting("ebarimt_api_url", ""))
-        self._ebarimt_merchant_tin_entry.set_text(self._setting("ebarimt_merchant_tin", ""))
-        self._ebarimt_ttd_entry.set_text(self._setting("ebarimt_ttd", ""))
-        self._ebarimt_branch_id_entry.set_text(self._setting("ebarimt_branch_id", ""))
-
-    def _make_security_tab(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=12)
-
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        row.pack_start(Gtk.Label(label="Админ PIN:", xalign=1), False, False, 0)
-        self._change_pin_btn = Gtk.Button(label="PIN солих")
-        self._change_pin_btn.connect("clicked", self._on_change_pin)
-        row.pack_start(self._change_pin_btn, False, False, 0)
-        box.pack_start(row, False, False, 0)
-
-        row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._auto_admin_switch = Gtk.Switch()
-        row2.pack_start(Gtk.Label(label="Авто админ:", xalign=1), False, False, 0)
-        row2.pack_start(self._auto_admin_switch, False, False, 0)
-        box.pack_start(row2, False, False, 0)
-
-        return box
-
-    def _populate_security(self):
-        self._auto_admin_switch.set_active(self._setting("auto_admin_session", "true") == "true")
-
-    def _make_display_tab(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=12)
-
-        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        row.pack_start(Gtk.Label(label="Сэдэв:", xalign=1), False, False, 0)
-        self._theme_combo = Gtk.ComboBoxText()
-        for t in ("auto", "light", "dark"):
-            self._theme_combo.append_text(t)
-        self._theme_combo.set_active(0)
-        row.pack_start(self._theme_combo, False, False, 0)
-        box.pack_start(row, False, False, 0)
-
-        row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self._low_perf_switch = Gtk.Switch()
-        row2.pack_start(Gtk.Label(label="Low perf mode:", xalign=1), False, False, 0)
-        row2.pack_start(self._low_perf_switch, False, False, 0)
-        box.pack_start(row2, False, False, 0)
-
-        scale_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        scale_row.set_margin_top(8)
-        scale_row.pack_start(Gtk.Label(label="Дэлгэцийн хэмжээ:", xalign=1), False, False, 0)
-        self._display_scale_adj = Gtk.Adjustment(
-            value=1.0, lower=0.5, upper=3.0, step_increment=0.05,
-        )
-        self._display_scale_spin = Gtk.SpinButton(adjustment=self._display_scale_adj)
-        self._display_scale_spin.set_digits(2)
-        self._display_scale_spin.set_width_chars(6)
-        scale_row.pack_start(self._display_scale_spin, False, False, 0)
-
-        scale_hint = Gtk.Label(label="(0.5=жижиг, 1.0=хэвийн, 3.0=том)")
-        scale_hint.set_margin_start(4)
-        scale_hint.get_style_context().add_class("text-muted")
-        scale_row.pack_start(scale_hint, False, False, 0)
-        box.pack_start(scale_row, False, False, 0)
-
-        return box
-
-    def _populate_display(self):
-        theme_val = self._setting("theme", "auto")
-        model = self._theme_combo.get_model()
-        for i in range(len(model)):
-            if model[i][0] == theme_val:
-                self._theme_combo.set_active(i)
-                break
-        self._low_perf_switch.set_active(self._setting("low_perf_mode") == "true")
-        try:
-            scale = float(self._setting("display_scale", "0"))
-            if 0.5 <= scale <= 3.0:
-                self._display_scale_spin.set_value(scale)
-            elif hasattr(self.app, '_display_scale'):
-                self._display_scale_spin.set_value(self.app._display_scale)
-            else:
-                self._display_scale_spin.set_value(1.0)
-        except Exception:
-            auto = getattr(self.app, '_display_scale', 1.0)
-            self._display_scale_spin.set_value(auto)
-
-    def _make_system_tab(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=12)
-
-        backup_btn = Gtk.Button(label="📦 Өгөгдлийн сангийн нөөц хийх")
-        backup_btn.set_size_request(-1, 40)
-        backup_btn.connect("clicked", lambda b: self._do_backup())
-        box.pack_start(backup_btn, False, False, 0)
-
-        restore_btn = Gtk.Button(label="📥 Нөөцөөс сэргээх")
-        restore_btn.set_size_request(-1, 40)
-        restore_btn.connect("clicked", lambda b: self._do_restore())
-        box.pack_start(restore_btn, False, False, 0)
-
-        check_btn = Gtk.Button(label="🔍 Өгөгдлийн сан шалгах")
-        check_btn.set_size_request(-1, 40)
-        check_btn.connect("clicked", lambda b: self._do_integrity_check())
-        box.pack_start(check_btn, False, False, 0)
-
-        info_label = Gtk.Label(label="")
-        info_label.set_has_window(False)
-        self._sys_info_label = info_label
-        box.pack_start(info_label, False, False, 0)
-
-        version_text = "unknown"
-        try:
-            import os as _os
-            vpath = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "VERSION")
-            with open(vpath) as f:
-                version_text = f.read().strip()
-        except Exception:
-            pass
-        box.pack_start(Gtk.Label(label=f"Хувилбар: {version_text}"), False, False, 0)
-
-        return box
+        s = self._settings
+        self._store_name.set_text(s.get("store_name", ""))
+        self._store_phone.set_text(s.get("store_phone", ""))
+        self._store_address.set_text(s.get("store_address", ""))
+        self._default_payment.set_active_id(s.get("default_payment_type", "cash"))
+        self._qr_payment_image.set_text(s.get("qr_payment_image", ""))
+        self._printer_port.set_text(s.get("printer_port", "/dev/usb/lp0"))
+        self._receipt_footer.set_text(s.get("receipt_footer", ""))
+        self._auto_print.set_active(s.get("auto_print_receipt", "true") == "true")
+        self._show_vat.set_active(s.get("show_vat_on_receipt", "false") == "true")
+        self._receipt_width.set_value(int(s.get("receipt_width", "32")))
+        self._show_stock_warnings.set_active(s.get("show_stock_warnings", "true") == "true")
+        self._discounts_enabled.set_active(s.get("discounts_enabled", "false") == "true")
+        self._theme.set_active_id(s.get("theme", "auto"))
+        self._customer_display_timeout.set_value(int(s.get("customer_display_timeout", "10")))
+        self._customer_idle_message.set_text(s.get("customer_idle_message", "Тавтай морилно уу"))
+        self._admin_session_timeout.set_value(int(s.get("admin_session_timeout_minutes", "480")))
+        self._return_window_days.set_value(int(s.get("return_window_days", "30")))
+        self._backup_retention_days.set_value(int(s.get("backup_retention_days", "30")))
 
     def _on_save_all(self, btn):
-        values = {}
-
-        for key in ("store_name", "store_address", "store_phone", "receipt_footer"):
-            entry = getattr(self, f"_store_{key}", None)
-            if entry:
-                values[key] = entry.get_text().strip()
-        values["receipt_width"] = str(int(self._receipt_width_spin.get_value()))
-        values["show_vat_on_receipt"] = "true" if self._show_vat_switch.get_active() else "false"
-
-        values["printer_port"] = self._printer_port_entry.get_text().strip()
-        values["auto_print_receipt"] = "true" if self._auto_print_switch.get_active() else "false"
-
-        values["terminal_enabled"] = "true" if self._terminal_enabled_switch.get_active() else "false"
-        values["terminal_ip"] = self._terminal_ip_entry.get_text().strip()
-        values["terminal_port"] = self._terminal_port_entry.get_text().strip()
-        values["discounts_enabled"] = "true" if self._discounts_switch.get_active() else "false"
-
-        values["qpay_enabled"] = "true" if self._qpay_enabled_switch.get_active() else "false"
-        values["qpay_client_id"] = self._qpay_client_id_entry.get_text().strip()
-        values["qpay_client_secret"] = self._qpay_client_secret_entry.get_text().strip()
-        values["qpay_base_url"] = self._qpay_base_url_entry.get_text().strip()
-        values["qpay_allow_partial"] = "true" if self._qpay_allow_partial_switch.get_active() else "false"
-        values["qpay_allow_exceed"] = "true" if self._qpay_allow_exceed_switch.get_active() else "false"
-
-        values["ebarimt_api_url"] = self._ebarimt_api_url_entry.get_text().strip()
-        values["ebarimt_merchant_tin"] = self._ebarimt_merchant_tin_entry.get_text().strip()
-        values["ebarimt_ttd"] = self._ebarimt_ttd_entry.get_text().strip()
-        values["ebarimt_branch_id"] = self._ebarimt_branch_id_entry.get_text().strip()
-        values["auto_admin_session"] = "true" if self._auto_admin_switch.get_active() else "false"
-
-        theme_val = self._theme_combo.get_active_text() or "auto"
-        values["theme"] = theme_val
-        values["low_perf_mode"] = "true" if self._low_perf_switch.get_active() else "false"
-        values["display_scale"] = str(self._display_scale_spin.get_value())
+        values = {
+            "store_name": self._store_name.get_text().strip(),
+            "store_phone": self._store_phone.get_text().strip(),
+            "store_address": self._store_address.get_text().strip(),
+            "receipt_footer": self._receipt_footer.get_text().strip(),
+            "default_payment_type": self._default_payment.get_active_id() or "cash",
+            "qr_payment_image": self._qr_payment_image.get_text().strip(),
+            "printer_port": self._printer_port.get_text().strip(),
+            "receipt_width": str(int(self._receipt_width.get_value())),
+            "auto_print_receipt": "true" if self._auto_print.get_active() else "false",
+            "show_vat_on_receipt": "true" if self._show_vat.get_active() else "false",
+            "show_stock_warnings": "true" if self._show_stock_warnings.get_active() else "false",
+            "discounts_enabled": "true" if self._discounts_enabled.get_active() else "false",
+            "theme": self._theme.get_active_id() or "auto",
+            "customer_display_timeout": str(int(self._customer_display_timeout.get_value())),
+            "customer_idle_message": self._customer_idle_message.get_text().strip(),
+            "admin_session_timeout_minutes": str(int(self._admin_session_timeout.get_value())),
+            "return_window_days": str(int(self._return_window_days.get_value())),
+            "backup_retention_days": str(int(self._backup_retention_days.get_value())),
+        }
 
         try:
             import database as db
             db.set_settings(values)
-            from config import invalidate_settings_cache
-            invalidate_settings_cache()
+            if self.app and self.app.theme:
+                self.app.theme.apply(
+                    values.get("theme", "auto"),
+                    scale=getattr(self.app, '_display_scale', 1.0),
+                )
+            if self.app and self.app.cache:
+                self.app.cache.invalidate()
         except Exception as e:
             logger.error(f"Save settings failed: {e}")
 
-        theme_val = values.get("theme", "auto")
-        scale = float(values.get("display_scale", "1.0"))
-        low_perf = self._low_perf_switch.get_active()
-        if self.app and hasattr(self.app, 'theme'):
-            try:
-                self.app.theme.apply(theme_val, scale=scale, low_perf=low_perf)
-                self.app._display_scale = scale
-                if hasattr(self.app, 'cache') and self.app.cache:
-                    cat_css = self.app.cache.generate_category_css()
-                    self.app.theme.append_css(cat_css)
-            except Exception:
-                pass
-
-        self._show_info("\u2705 Тохиргоо хадгалагдлаа")
-
-    def _on_change_pin(self, btn):
-        dialog = Gtk.Dialog(
-            title="PIN код солих",
-            transient_for=self.get_toplevel(),
-            flags=Gtk.DialogFlags.MODAL,
-        )
-        content = dialog.get_content_area()
-        content.set_spacing(8)
-        content.set_margin_start(16)
-
-        content.set_margin_end(16)
-
-        content.set_margin_top(16)
-
-        content.set_margin_bottom(16)
-
-        fields = [("Одоогийн PIN:", "current"), ("Шинэ PIN:", "new"), ("Шинэ PIN давтах:", "confirm")]
-        entries = {}
-        for label, key in fields:
-            content.add(Gtk.Label(label=label, xalign=0))
-            entry = Gtk.Entry()
-            entry.set_visibility(False)
-            entry.set_max_length(6)
-            entries[key] = entry
-            content.add(entry)
-
-        dialog.add_button("Цуцлах", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Хадгалах", Gtk.ResponseType.OK)
-        dialog.show_all()
-
-        if dialog.run() == Gtk.ResponseType.OK:
-            current = entries["current"].get_text().strip()
-            new = entries["new"].get_text().strip()
-            confirm = entries["confirm"].get_text().strip()
-
-            if new != confirm:
-                self._show_error("Шинэ PIN тохирохгүй байна")
-            elif not new:
-                self._show_error("Шинэ PIN хоосон байж болохгүй")
-            else:
-                try:
-                    import database as db
-                    success, error = db.change_admin_password(current, new)
-                    if error:
-                        self._show_error(error)
-                    else:
-                        self._show_info("✅ PIN код амжилттай солигдлоо")
-                except Exception as e:
-                    self._show_error(f"Алдаа: {e}")
-
-        dialog.destroy()
-
-    def _do_backup(self):
-        try:
-            import database as db
-            path = db.perform_manual_backup()
-            self._show_info(f"✅ Нөөц амжилттай: {path}")
-        except Exception as e:
-            self._show_error(f"Нөөц амжилтгүй: {e}")
-
-    def _do_restore(self):
-        dialog = Gtk.FileChooserDialog(
-            title="Нөөц файл сонгох",
-            transient_for=self.get_toplevel(),
-            action=Gtk.FileChooserAction.OPEN,
-        )
-        dialog.add_button("Цуцлах", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Сэргээх", Gtk.ResponseType.OK)
-        dialog.show_all()
-
-        if dialog.run() == Gtk.ResponseType.OK:
-            filename = dialog.get_filename()
-            dialog.destroy()
-            try:
-                import database as db
-                db.verify_backup(filename)
-                confirm = Gtk.MessageDialog(
-                    transient_for=self.get_toplevel(),
-                    flags=Gtk.DialogFlags.MODAL,
-                    message_type=Gtk.MessageType.WARNING,
-                    buttons=Gtk.ButtonsType.YES_NO,
-                    text="Та итгэлтэй байна уу?\nОдоогийн өгөгдөл устгагдаж нөөцөөс сэргээгдэнэ!",
-                )
-                if confirm.run() == Gtk.ResponseType.YES:
-                    import shutil
-                    import database as db2
-                    db_path = db2.DB_PATH
-                    shutil.copy2(filename, db_path)
-                    self._show_info("✅ Сэргээгдлээ. Программ дахин ачаална уу.")
-                confirm.destroy()
-            except Exception as e:
-                self._show_error(f"Сэргээхэд алдаа: {e}")
-        else:
-            dialog.destroy()
-
-    def _do_integrity_check(self):
-        try:
-            import database as db
-            ok = db.check_db_integrity()
-            if ok:
-                self._show_info("✅ Өгөгдлийн сан хэвийн")
-            else:
-                self._show_error("❌ Өгөгдлийн сан гэмтсэн! Нөөцөөс сэргээнэ үү.")
-        except Exception as e:
-            self._show_error(f"Шалгалтад алдаа: {e}")
-
-    def _show_info(self, msg):
-        d = Gtk.MessageDialog(
+        dialog = Gtk.MessageDialog(
             transient_for=self.get_toplevel(),
             flags=Gtk.DialogFlags.MODAL,
             message_type=Gtk.MessageType.INFO,
             buttons=Gtk.ButtonsType.OK,
-            text=msg,
+            text="✅ Тохиргоо хадгалагдлаа!",
         )
-        d.run()
-        d.destroy()
-
-    def _show_error(self, msg):
-        d = Gtk.MessageDialog(
-            transient_for=self.get_toplevel(),
-            flags=Gtk.DialogFlags.MODAL,
-            message_type=Gtk.MessageType.ERROR,
-            buttons=Gtk.ButtonsType.OK,
-            text=msg,
-        )
-        d.run()
-        d.destroy()
+        dialog.run()
+        dialog.destroy()

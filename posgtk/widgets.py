@@ -172,7 +172,7 @@ def make_cart_item_row(item, on_remove, on_qty_change, cache=None):
     row = Gtk.ListBoxRow()
     row.get_style_context().add_class("cart-row")
 
-    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(6))
+    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
     hbox.set_valign(Gtk.Align.CENTER)
 
     qty_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -180,6 +180,7 @@ def make_cart_item_row(item, on_remove, on_qty_change, cache=None):
 
     dec_btn = Gtk.Button(label="−")
     dec_btn.get_style_context().add_class("qty-btn")
+    dec_btn.set_size_request(28, 28)
     dec_btn.connect("clicked", lambda b: on_qty_change(item, -1))
     qty_box.pack_start(dec_btn, False, False, 0)
 
@@ -189,6 +190,7 @@ def make_cart_item_row(item, on_remove, on_qty_change, cache=None):
 
     inc_btn = Gtk.Button(label="+")
     inc_btn.get_style_context().add_class("qty-btn")
+    inc_btn.set_size_request(28, 28)
     inc_btn.connect("clicked", lambda b: on_qty_change(item, 1))
     qty_box.pack_start(inc_btn, False, False, 0)
 
@@ -196,7 +198,7 @@ def make_cart_item_row(item, on_remove, on_qty_change, cache=None):
 
     icon_box = Gtk.Box()
     icon_box.get_style_context().add_class("cart-item-icon-box")
-    icon_box.set_size_request(scaled_px(36), scaled_px(36))
+    icon_box.set_size_request(36, 36)
     icon_label = Gtk.Label(label=get_category_icon(item.category))
     icon_label.set_halign(Gtk.Align.CENTER)
     icon_label.set_valign(Gtk.Align.CENTER)
@@ -212,7 +214,7 @@ def make_cart_item_row(item, on_remove, on_qty_change, cache=None):
         )
     hbox.pack_start(icon_box, False, False, 0)
 
-    info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(1))
+    info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
     info_box.set_hexpand(True)
 
     name_label = Gtk.Label(label=item.product_name)
@@ -220,11 +222,11 @@ def make_cart_item_row(item, on_remove, on_qty_change, cache=None):
     name_label.set_ellipsize(Pango.EllipsizeMode.END)
     name_label.set_halign(Gtk.Align.START)
     name_label.set_xalign(0.0)
-    name_label.set_max_width_chars(18)
+    name_label.set_max_width_chars(16)
     info_box.pack_start(name_label, False, False, 0)
 
     if item.unit and item.unit != "ш":
-        unit_label = Gtk.Label(label=f"1{'_'} = {format_money(item.unit_price)}")
+        unit_label = Gtk.Label(label=f"1 _ = {format_money(item.unit_price)}")
         unit_label.get_style_context().add_class("cart-item-unit")
         unit_label.set_halign(Gtk.Align.START)
         unit_label.set_xalign(0.0)
@@ -235,10 +237,12 @@ def make_cart_item_row(item, on_remove, on_qty_change, cache=None):
     subtotal_label = Gtk.Label(label=format_money(item.subtotal))
     subtotal_label.get_style_context().add_class("cart-item-subtotal")
     subtotal_label.set_halign(Gtk.Align.END)
+    subtotal_label.set_size_request(80, -1)
     hbox.pack_start(subtotal_label, False, False, 0)
 
     remove_btn = Gtk.Button(label="✕")
     remove_btn.get_style_context().add_class("cart-remove-btn")
+    remove_btn.set_size_request(28, 28)
     remove_btn.connect("clicked", lambda b: on_remove(item))
     hbox.pack_start(remove_btn, False, False, 0)
 

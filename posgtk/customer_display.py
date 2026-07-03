@@ -129,18 +129,31 @@ class CustomerDisplayWindow(Gtk.Window):
         box.set_valign(Gtk.Align.CENTER)
         box.set_halign(Gtk.Align.CENTER)
 
+        store_name = self._store_info.get("name", "Моност").upper()
+        store_label = Gtk.Label()
+        store_label.set_markup(f'<span font_weight="900" size="36000" foreground="#15803d">{store_name}</span>')
+        store_label.set_name("cd-idle-store-name")
+        store_label.set_margin_bottom(scaled_px(24))
+
         icon_label = Gtk.Label(label="🛍️")
         icon_label.set_name("cd-idle-icon")
 
+        try:
+            from config import get_settings
+            idle_msg = get_settings().get("customer_idle_message", "Тавтай морилно уу")
+        except Exception:
+            idle_msg = "Тавтай морилно уу"
+
         title = Gtk.Label()
-        title.set_markup('<span font_weight="900" size="64000" foreground="#15803d">Тавтай морилно уу</span>')
+        title.set_markup(f'<span font_weight="900" size="52000" foreground="#0f172a">{idle_msg}</span>')
         title.set_name("cd-idle-title")
+        title.set_margin_top(scaled_px(16))
 
-        subtitle = Gtk.Label()
-        subtitle.set_markup('<span font_weight="700" size="28000" foreground="#0f172a">Бараа сонгоно уу</span>')
+        subtitle = Gtk.Label(label="Бараа сонгоно уу")
         subtitle.set_name("cd-idle-subtitle")
-        subtitle.set_margin_top(scaled_px(16))
+        subtitle.set_margin_top(scaled_px(8))
 
+        box.pack_start(store_label, False, False, 0)
         box.pack_start(icon_label, False, False, 0)
         box.pack_start(title, False, False, 0)
         box.pack_start(subtitle, False, False, 0)
