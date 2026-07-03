@@ -162,7 +162,6 @@ headerbar label {
 .form-card label { color: #667085; font-weight: 600; font-size: 13px; }
 .form-grid {
     margin: 12px;
-    spacing: 10px;
 }
 .form-grid entry,
 .form-grid combobox {
@@ -213,9 +212,7 @@ headerbar label {
     border-color: #059669;
     box-shadow: 0 0 0 4px rgba(5, 150, 105, 0.1);
 }
-.barcode-entry::placeholder,
-.search-entry::placeholder,
-.search-entry-inline::placeholder { color: #94A3B8; }
+
 
 /* === CATEGORY FILTER === */
 .category-scroll { min-height: 42px; margin: 4px 0; }
@@ -389,7 +386,7 @@ flowboxchild { padding: 5px; }
     min-width: 0;
 }
 .qty-btn:hover { background: #E2E8F0; color: #059669; }
-.qty-btn:active { transform: scale(0.9); }
+.qty-btn:active { }
 .qty-text-label {
     font-size: 13px;
     font-weight: 800;
@@ -647,7 +644,6 @@ flowboxchild { padding: 5px; }
     color: #475569;
     padding: 10px 12px;
     border-bottom: 2px solid #DEE2E9;
-    text-transform: uppercase;
     letter-spacing: 0.03em;
 }
 .treeview-table cell { font-size: 14px; color: #1A2235; padding: 8px 12px; }
