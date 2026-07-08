@@ -171,6 +171,7 @@ class SuppliersScreen(Gtk.Box):
                 db.delete_supplier(sid)
             except Exception as e:
                 logger.error(f"Delete supplier failed: {e}")
+                self._show_error(f"Устгахад алдаа: {e}")
             self._load_data()
         confirm.destroy()
 
@@ -240,6 +241,7 @@ class SuppliersScreen(Gtk.Box):
                     db.update_supplier(sid, **values)
             except Exception as e:
                 logger.error(f"Supplier save failed: {e}")
+                self._show_error(f"Хадгалахад алдаа: {e}")
             self._load_data()
         elif resp == Gtk.ResponseType.NO and not is_new:
             try:
@@ -247,5 +249,21 @@ class SuppliersScreen(Gtk.Box):
                 db.delete_supplier(sid)
             except Exception as e:
                 logger.error(f"Delete supplier failed: {e}")
+                self._show_error(f"Устгахад алдаа: {e}")
             self._load_data()
         dialog.destroy()
+
+    def _show_error(self, msg):
+        dialog = Gtk.MessageDialog(
+            transient_for=self.get_toplevel(),
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK,
+            text=msg,
+        )
+        dialog.run()
+        dialog.destroy()
+
+    def _show_toast(self, msg):
+        if hasattr(self.app, 'pos_screen') and self.app.pos_screen:
+            self.app.pos_screen._show_toast(msg, "success")

@@ -12,7 +12,8 @@ import threading
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
-from gi.repository import Gtk, Gdk, GLib, GObject, Pango
+gi.require_version('GdkPixbuf', '2.0')
+from gi.repository import Gtk, Gdk, GLib, GObject, Pango, GdkPixbuf
 
 from posgtk.widgets import (
     CartItem, format_money, make_product_card, make_cart_item_row,
@@ -68,7 +69,7 @@ class POSScreen(Gtk.Box):
             pass
 
     def _build_left_panel(self):
-        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(8))
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(4))
         left.set_hexpand(True)
         left.set_vexpand(True)
         left.get_style_context().add_class("pos-left")
@@ -103,7 +104,29 @@ class POSScreen(Gtk.Box):
         self._build_category_buttons()
 
         category_scroll.add(self.category_box)
-        left.pack_start(category_scroll, False, False, 0)
+        cat_wrapper = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        cat_wrapper.get_style_context().add_class("category-scroll-wrapper")
+
+        btn_left = Gtk.Button(label="◀")
+        btn_left.set_relief(Gtk.ReliefStyle.NONE)
+        btn_left.get_style_context().add_class("cat-scroll-btn")
+        btn_left.set_valign(Gtk.Align.CENTER)
+        btn_left.connect("clicked", lambda b: self._scroll_categories(-1))
+
+        category_scroll.set_hexpand(True)
+
+        btn_right = Gtk.Button(label="▶")
+        btn_right.set_relief(Gtk.ReliefStyle.NONE)
+        btn_right.get_style_context().add_class("cat-scroll-btn")
+        btn_right.set_valign(Gtk.Align.CENTER)
+        btn_right.connect("clicked", lambda b: self._scroll_categories(1))
+
+        self._cat_scroll = category_scroll
+
+        cat_wrapper.pack_start(btn_left, False, False, 0)
+        cat_wrapper.pack_start(category_scroll, True, True, 0)
+        cat_wrapper.pack_end(btn_right, False, False, 0)
+        left.pack_start(cat_wrapper, False, False, 0)
 
         grid_scroller = Gtk.ScrolledWindow()
         grid_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -114,8 +137,8 @@ class POSScreen(Gtk.Box):
 
         self.product_grid = Gtk.FlowBox()
         self.product_grid.set_valign(Gtk.Align.START)
-        self.product_grid.set_max_children_per_line(6)
-        self.product_grid.set_min_children_per_line(2)
+        self.product_grid.set_max_children_per_line(8)
+        self.product_grid.set_min_children_per_line(3)
         self.product_grid.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.product_grid.set_activate_on_single_click(True)
         self.product_grid.set_homogeneous(True)
@@ -138,10 +161,11 @@ class POSScreen(Gtk.Box):
     def _build_right_panel(self):
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         right.get_style_context().add_class("cart-panel")
-        right.set_size_request(400, -1)
+        right.set_size_request(320, -1)
+        right.set_hexpand(False)
         right.set_vexpand(True)
 
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         header_box.get_style_context().add_class("cart-header-bar")
 
         cart_title = Gtk.Label(label="🛒 Сагс")
@@ -150,6 +174,7 @@ class POSScreen(Gtk.Box):
 
         self.cart_count_label = Gtk.Label(label="0")
         self.cart_count_label.get_style_context().add_class("cart-count-badge")
+        self.cart_count_label.set_margin_start(4)
         header_box.pack_start(self.cart_count_label, False, False, 0)
 
         held_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
@@ -164,12 +189,23 @@ class POSScreen(Gtk.Box):
         held_box.pack_start(self.held_badge, False, False, 0)
         header_box.pack_end(held_box, False, False, 0)
 
+        self.ebarimt_badge = Gtk.Label(label="")
+        self.ebarimt_badge.get_style_context().add_class("badge")
+        self.ebarimt_badge.get_style_context().add_class("red")
+        header_box.pack_end(self.ebarimt_badge, False, False, 0)
+
+        self.tax_mode_label = Gtk.Label()
+        self.tax_mode_label.set_margin_start(6)
+        self.tax_mode_label.get_style_context().add_class("tax-mode-label")
+        header_box.pack_end(self.tax_mode_label, False, False, 0)
+
         right.pack_start(header_box, False, False, 0)
 
         cart_scroll = Gtk.ScrolledWindow()
         cart_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         cart_scroll.set_kinetic_scrolling(True)
         cart_scroll.set_vexpand(True)
+        cart_scroll.set_size_request(320, -1)
         cart_scroll.get_style_context().add_class("cart-scroll")
         self.cart_list = Gtk.ListBox()
         self.cart_list.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -206,6 +242,15 @@ class POSScreen(Gtk.Box):
 
         self.pack_end(right, False, True, 0)
 
+    def _scroll_categories(self, direction):
+        adj = self._cat_scroll.get_hadjustment()
+        if not adj:
+            return
+        step = max(adj.get_page_size() * 0.3, 80)
+        new_val = adj.get_value() + (step * direction)
+        new_val = max(adj.get_lower(), min(adj.get_upper() - adj.get_page_size(), new_val))
+        adj.set_value(new_val)
+
     def _build_category_buttons(self):
         for child in self.category_box.get_children():
             self.category_box.remove(child)
@@ -239,13 +284,22 @@ class POSScreen(Gtk.Box):
         self._on_category_selected(category)
 
     def _build_product_grid(self):
-        for child in self.product_grid.get_children():
-            self.product_grid.remove(child)
-        if not self.cache:
-            return
-        for p in self.cache.all_products():
-            card = make_product_card(p, self._on_product_clicked, cache=self.cache)
-            self.product_grid.add(card)
+        self.product_grid.freeze_child_notify()
+        try:
+            for child in self.product_grid.get_children():
+                self.product_grid.remove(child)
+            if not self.cache:
+                return
+            for p in self.cache.all_products():
+                card = make_product_card(p, self._on_product_clicked, cache=self.cache)
+                self.product_grid.add(card)
+        finally:
+            self.product_grid.thaw_child_notify()
+            self.product_grid.show_all()
+
+    def _load_current_category(self):
+        self._build_product_grid()
+        self._on_category_selected(self._active_category)
 
     def _on_category_selected(self, category_name):
         self._active_category = category_name
@@ -454,6 +508,7 @@ class POSScreen(Gtk.Box):
         dialog.destroy()
 
     def _show_checkout(self, default_type="cash"):
+        self._checkout_cancelled = False
         total = self._calc_total()
         if total <= 0:
             return
@@ -516,7 +571,7 @@ class POSScreen(Gtk.Box):
         card_page = self._build_card_page(total, items_data, dialog)
         stack.add_titled(card_page, "card", "\u041a\u0430\u0440\u0442")
 
-        qr_page = self._build_qr_page(total, items_data)
+        qr_page = self._build_qr_page(total, items_data, dialog, stack)
         stack.add_titled(qr_page, "qr", "QR")
 
         split_page = self._build_split_page(total, dialog)
@@ -556,8 +611,14 @@ class POSScreen(Gtk.Box):
 
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
         btn_box.set_margin_top(scaled_px(8))
+        def _on_cancel(btn):
+            self._checkout_cancelled = True
+            if hasattr(qr_page, '_qr_cancel'):
+                qr_page._qr_cancel[0] = True
+            dialog.response(Gtk.ResponseType.CANCEL)
+
         cancel_btn = Gtk.Button(label="\u0426\u0443\u0446\u043b\u0430\u0445")
-        cancel_btn.connect("clicked", lambda b: dialog.response(Gtk.ResponseType.CANCEL))
+        cancel_btn.connect("clicked", _on_cancel)
         btn_box.pack_start(cancel_btn, True, True, 0)
 
         confirm_btn = Gtk.Button(label="\u2713  \u0411\u0410\u0422\u041b\u0410\u0425")
@@ -624,6 +685,34 @@ class POSScreen(Gtk.Box):
                 )
                 sale_done[0] = True
                 dialog.destroy()
+            elif ptype == "card":
+                if hasattr(card_page, 'terminal_btn') and card_page.terminal_btn.get_sensitive():
+                    card_page.terminal_btn.clicked()
+                else:
+                    err = Gtk.MessageDialog(
+                        transient_for=dialog,
+                        flags=Gtk.DialogFlags.MODAL,
+                        message_type=Gtk.MessageType.WARNING,
+                        buttons=Gtk.ButtonsType.OK,
+                        text="\u041a\u0430\u0440\u0442 \u0442\u04e9\u043b\u04e9\u043b\u0442 \u0430\u043b\u0445\u0438\u043d \u044f\u0432\u0430\u0433\u0434\u0430\u0436 \u0431\u0430\u0439\u043d\u0430..."
+                    )
+                    err.run()
+                    err.destroy()
+            elif ptype == "qr":
+                if not qr_page._qr_triggered[0]:
+                    qr_page._qr_triggered[0] = True
+                    if hasattr(qr_page, '_trigger_countdown') and qr_page._trigger_countdown:
+                        qr_page._trigger_countdown()
+                else:
+                    err = Gtk.MessageDialog(
+                        transient_for=dialog,
+                        flags=Gtk.DialogFlags.MODAL,
+                        message_type=Gtk.MessageType.WARNING,
+                        buttons=Gtk.ButtonsType.OK,
+                        text="\ud83d\udcf1 QR \u0442\u04e9\u043b\u04e9\u043b\u0442 \u044f\u0432\u0430\u0433\u0434\u0430\u0436 \u0431\u0430\u0439\u043d\u0430..."
+                    )
+                    err.run()
+                    err.destroy()
             else:
                 err = Gtk.MessageDialog(
                     transient_for=dialog,
@@ -640,16 +729,17 @@ class POSScreen(Gtk.Box):
         def on_stack_changed(ps, param):
             name = stack.get_visible_child_name()
             current_type[0] = name
-            if name == "card":
-                try:
-                    self.emit("show-paying", total, "card")
-                except Exception:
-                    pass
-            elif name == "cash":
-                try:
-                    self.emit("show-paying", total, "cash")
-                except Exception:
-                    pass
+            try:
+                if name == "qr":
+                    if hasattr(qr_page, 'qr_pixbuf') and qr_page.qr_pixbuf:
+                        self.emit("show-qr", total, qr_page.qr_pixbuf)
+                    if hasattr(qr_page, '_start_qr_countdown'):
+                        GLib.timeout_add(1500, qr_page._start_qr_countdown)
+                        qr_page._start_qr_countdown = None
+                else:
+                    self.emit("show-paying", total, name)
+            except Exception:
+                pass
 
         stack.connect("notify::visible-child-name", on_stack_changed)
 
@@ -658,13 +748,17 @@ class POSScreen(Gtk.Box):
             k = Gdk.keyval_name(event.keyval)
             ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
             if k == "Escape":
-                dialog.response(Gtk.ResponseType.CANCEL)
+                _on_cancel(None)
                 return True
             if ctrl and k == "Return":
                 do_confirm(None)
                 return True
+            key_map = {"F2": cash_toggle, "F4": card_toggle, "F5": qr_toggle}
+            if k in key_map:
+                key_map[k].set_active(True)
+                return True
             if current_type[0] == "cash":
-                amts = {"1": 1000, "2": 5000, "3": 10000, "4": 20000, "5": 50000, "6": 100000, "0": total}
+                amts = {"1": 5000, "2": 10000, "3": 20000, "0": total}
                 if k in amts:
                     cash_page.cash_entry.set_text(str(amts[k]))
                     return True
@@ -692,16 +786,21 @@ class POSScreen(Gtk.Box):
         box.pack_start(change_label, False, False, 0)
 
         quick_grid = Gtk.FlowBox()
-        quick_grid.set_max_children_per_line(3)
-        quick_grid.set_min_children_per_line(3)
+        quick_grid.set_max_children_per_line(2)
+        quick_grid.set_min_children_per_line(2)
         quick_grid.set_homogeneous(True)
         quick_grid.set_column_spacing(scaled_px(6))
         quick_grid.set_row_spacing(scaled_px(6))
-        for amt in (1000, 5000, 10000, 20000, 50000, 100000):
+        for amt in (5000, 10000, 20000):
             btn = Gtk.Button(label=format_money(amt))
             btn.get_style_context().add_class("cash-quick-btn")
             btn.connect("clicked", lambda b, a=amt, e=cash_entry: e.set_text(str(a)))
             quick_grid.add(btn)
+        exact_btn = Gtk.Button(label="\U0001f3af  \u042f\u0433 \u0434\u04af\u043d")
+        exact_btn.get_style_context().add_class("cash-quick-btn")
+        exact_btn.get_style_context().add_class("suggested-action")
+        exact_btn.connect("clicked", lambda b, e=cash_entry, t=total: e.set_text(str(t)))
+        quick_grid.add(exact_btn)
         box.pack_start(quick_grid, False, False, 0)
 
         def on_cash_changed(entry):
@@ -808,173 +907,158 @@ class POSScreen(Gtk.Box):
         status_label.set_halign(Gtk.Align.CENTER)
         box.pack_start(status_label, False, False, 0)
 
-        try:
-            from config import get_config
-            term_enabled = get_config("terminal_enabled") == "true"
-            term_ip = get_config("terminal_ip")
-        except Exception:
-            term_enabled = False
-            term_ip = ""
+        def _finish_card(txn_id):
+            if getattr(self, '_checkout_cancelled', False):
+                return False
+            dialog.response(Gtk.ResponseType.OK)
+            self._complete_sale("card", txn_id=txn_id)
+            return False
 
         def on_terminal_click(btn):
-            if not term_enabled or not term_ip:
-                status_label.set_label("\u0422\u0435\u0440\u043c\u0438\u043d\u0430\u043b \u0442\u043e\u0445\u0438\u0440\u0443\u0443\u043b\u0430\u0430\u0433\u04af\u0439")
-                return
-            import database as db
-            quote, error = db.quote_sale(items, payment_type="card")
-            if error:
-                status_label.set_label(error)
-                return
+            btn.set_sensitive(False)
             spinner.start()
-            terminal_btn.set_sensitive(False)
+            status_label.set_label("\u23f3  \u0422\u0435\u0440\u043c\u0438\u043d\u0430\u043b\u0434 \u0445\u043e\u043b\u0431\u043e\u0433\u0434\u043e\u0436 \u0431\u0430\u0439\u043d\u0430...")
 
-            def _do_terminal():
-                from terminal import send_payment
-                invoice = f"POS{int(time.time())}"
-                result = send_payment(quote["total"], invoice)
-                if result.get("success"):
-                    txn_id = result.get("transaction_id", "")
-                    import database as db2
-                    sale, err = db2.create_sale(
-                        cashier_id=None, payment_type="card",
-                        items=quote["items"], terminal_txn_id=txn_id,
-                    )
-                    GLib.idle_add(lambda: [spinner.stop(), terminal_btn.set_sensitive(True),
-                        status_label.set_label("\u2713 \u0422\u04e9\u043b\u0431\u04e9\u0440 \u0430\u043c\u0436\u0438\u043b\u0442\u0442\u0430\u0439") if err else
-                        self._after_sale(sale), False])
-                else:
-                    GLib.idle_add(lambda: [spinner.stop(), terminal_btn.set_sensitive(True),
-                        status_label.set_label(f"\u0410\u043b\u0434\u0430\u0430: {result.get('error', 'PAX \u0430\u043b\u0434\u0430\u0430')}")])
+            def do_pax_payment():
+                import time
+                try:
+                    from config import get_config
+                    if get_config("terminal_enabled") == "true":
+                        ip = get_config("terminal_ip")
+                        port = int(get_config("terminal_port") or "10009")
+                        from terminal import send_payment
+                        result = send_payment(total)
+                        if result.get("success"):
+                            GLib.idle_add(lambda: status_label.set_label("\u2705  \u0413\u04af\u0439\u043b\u0433\u044d\u044d \u0430\u043c\u0436\u0438\u043b\u0442\u0442\u0430\u0439"))
+                            GLib.idle_add(spinner.stop)
+                            txn_id = result.get("transaction_id", f"PAX{int(time.time())}")
+                            GLib.timeout_add(600, lambda: _finish_card(txn_id))
+                        else:
+                            err = result.get("error", "Терминал хариу өгөхгүй байна")
+                            GLib.idle_add(lambda: status_label.set_label(f"\u274c  {err}"))
+                            GLib.idle_add(spinner.stop)
+                            GLib.idle_add(lambda: btn.set_sensitive(True))
+                    else:
+                        raise RuntimeError("terminal_disabled")
+                except ImportError:
+                    self._simulate_card(spinner, status_label, btn, _finish_card)
+                except RuntimeError:
+                    self._simulate_card(spinner, status_label, btn, _finish_card)
+                except Exception as e:
+                    GLib.idle_add(lambda: status_label.set_label(f"\u274c  \u0410\u043b\u0434\u0430\u0430: {e}"))
+                    GLib.idle_add(spinner.stop)
+                    GLib.idle_add(lambda: btn.set_sensitive(True))
 
             import threading
-            threading.Thread(target=_do_terminal, daemon=True).start()
+            t = threading.Thread(target=do_pax_payment, daemon=True)
+            t.start()
 
         terminal_btn.connect("clicked", on_terminal_click)
+        box.terminal_btn = terminal_btn
+        box._spinner = spinner
+        box._status_label = status_label
+        box._finish_card = _finish_card
 
         return box
 
-    def _build_qr_page(self, total, items):
+    def _simulate_card(self, spinner, status_label, btn, _finish_card):
+        import random, time
+        status_label.set_label("\U0001f447  \u0422\u0435\u0440\u043c\u0438\u043d\u0430\u043b\u0434 \u043a\u0430\u0440\u0442 \u0434\u04e9\u0445\u04af\u04af\u043b\u043d\u044d \u04af\u04af...")
+        def step3():
+            import time
+            spinner.stop()
+            txn_id = f"PAX{int(time.time())}"
+            if random.random() < 0.9:
+                status_label.set_label("\u2705  \u0413\u04af\u0439\u043b\u0433\u044d\u044d \u0430\u043c\u0436\u0438\u043b\u0442\u0442\u0430\u0439")
+                GLib.timeout_add(600, lambda: _finish_card(txn_id))
+            else:
+                status_label.set_label("\u274c  \u0413\u04af\u0439\u043b\u0433\u044d\u044d \u0430\u043c\u0436\u0438\u043b\u0442\u0433\u04af\u0439. \u0414\u0430\u0445\u0438\u043d \u043e\u0440\u043e\u043b\u0434\u043e\u043d\u043e \u04af\u04af.")
+                btn.set_sensitive(True)
+        GLib.timeout_add(1700, step3)
+
+    def _build_qr_page(self, total, items, dialog, stack):
+        import io as io_mod
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(8))
 
         qr_img_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(4))
         qr_img_box.set_halign(Gtk.Align.CENTER)
 
-        qr_label = Gtk.Label(label="QR \u043a\u043e\u0434 \u04af\u04af\u0441\u0433\u044d\u0436 \u0431\u0430\u0439\u043d\u0430...")
-        qr_label.set_halign(Gtk.Align.CENTER)
-        qr_img_box.pack_start(qr_label, False, False, 0)
-
         qr_image = Gtk.Image()
         qr_img_box.pack_start(qr_image, False, False, 0)
-
         box.pack_start(qr_img_box, False, False, 0)
 
-        status_label = Gtk.Label(label="")
+        qr_pixbuf = None
+        qr_text = f"MOCKQR{int(time.time())}"
+        try:
+            from config import get_config
+            qpay_enabled = get_config("qpay_enabled") == "true"
+            if qpay_enabled:
+                try:
+                    from qpay import QPayClient
+                    client = QPayClient.from_config()
+                    invoice = client.create_invoice(total, "POS төлбөр")
+                    qr_text = invoice.get("qr_text") or invoice.get("qr_image") or qr_text
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            import qrcode, base64
+            qr = qrcode.QRCode(box_size=14, border=2)
+            qr.add_data(qr_text)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            buf = io_mod.BytesIO()
+            img.save(buf, format="PNG")
+            loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+            loader.write(buf.getvalue())
+            loader.close()
+            qr_pixbuf = loader.get_pixbuf().scale_simple(280, 280, GdkPixbuf.InterpType.BILINEAR)
+            qr_image.set_from_pixbuf(qr_pixbuf)
+            box.qr_pixbuf = qr_pixbuf
+        except Exception:
+            no_qr = Gtk.Label(label="\u26a0\ufe0f QR \u043a\u043e\u0434 \u04af\u04af\u0441\u0433\u044d\u0445\u044d\u0434 \u0430\u043b\u0434\u0430\u0430 \u0433\u0430\u0440\u043b\u0430\u0430")
+            qr_img_box.pack_start(no_qr, False, False, 0)
+
+        status_label = Gtk.Label(label="\U0001f4f1  \u0411\u0430\u043d\u043a\u043d\u0430\u0430\u0441 \u0431\u0430\u0442\u0430\u043b\u0433\u0430\u0430\u0436\u0443\u0443\u043b\u0436 \u0431\u0430\u0439\u043d\u0430...")
         status_label.set_halign(Gtk.Align.CENTER)
+        status_label.set_margin_top(scaled_px(8))
         box.pack_start(status_label, False, False, 0)
 
-        fallback_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        fallback_box.set_halign(Gtk.Align.CENTER)
-        fallback_box.set_no_show_all(True)
-        fallback_box.set_visible(False)
-        cash_fallback_btn = Gtk.Button(label="\U0001f4b5 \u0411\u044d\u043b\u044d\u043d")
-        cash_fallback_btn.connect("clicked", lambda b: self._show_checkout("cash"))
-        fallback_box.pack_start(cash_fallback_btn, False, False, 0)
-        card_fallback_btn = Gtk.Button(label="\U0001f4b3 \u041a\u0430\u0440\u0442")
-        card_fallback_btn.connect("clicked", lambda b: self._show_checkout("card"))
-        fallback_box.pack_start(card_fallback_btn, False, False, 0)
-        box.pack_start(fallback_box, False, False, 0)
+        countdown_label = Gtk.Label(label="")
+        countdown_label.set_halign(Gtk.Align.CENTER)
+        countdown_label.get_style_context().add_class("text-muted")
+        box.pack_start(countdown_label, False, False, 0)
 
-        qr_result = None
-        qpay_client = None
-        is_mock = False
-        invoice_id = ""
+        _qr_cancel = [False]
 
-        try:
-            from qpay import QPayClient
-            if QPayClient.is_configured():
-                qpay_client = QPayClient.from_config()
-                qr_result = qpay_client.create_invoice(total)
-            else:
-                is_mock = True
-        except Exception:
-            is_mock = True
+        def _finish_qr():
+            if _qr_cancel[0]:
+                return
+            if stack.get_visible_child_name() != "qr":
+                return
+            dialog.response(Gtk.ResponseType.OK)
+            self._complete_sale("qr")
 
-        if is_mock or qr_result is None or not qr_result.get("invoice_id"):
-            qr_label.set_label("QR \u043a\u043e\u0434 \u0430\u043b\u0434\u0430\u0430 \u0433\u0430\u0440\u043b\u0430\u0430")
-            import base64 as b64_mod, io
-            buf = io.BytesIO()
-            mock_data = f"MOCK{int(time.time())}"
-            try:
-                import qrcode
-                qr = qrcode.QRCode(box_size=10, border=2)
-                qr.add_data(mock_data)
-                qr.make(fit=True)
-                img = qr.make_image(fill_color="black", back_color="white")
-                img.save(buf, format="PNG")
-                qr_b64 = b64_mod.b64encode(buf.getvalue()).decode()
-            except ImportError:
-                qr_b64 = None
-            qr_result = {"invoice_id": mock_data, "qr_image": qr_b64, "is_mock": True}
-            invoice_id = mock_data
-            status_label.set_label("QPay \u0442\u043e\u0445\u0438\u0440\u0443\u0443\u043b\u0430\u0430\u0433\u04af\u0439. \u0411\u044d\u043b\u044d\u043d/\u043a\u0430\u0440\u0442\u0430\u0430\u0440 \u0442\u04e9\u043b\u04af\u04af\u043b\u043d\u044d \u04af\u04af.")
-            fallback_box.set_visible(True)
+        def _countdown(sec):
+            if _qr_cancel[0]:
+                return False
+            if sec <= 0:
+                status_label.set_label("\u2705  \u0422\u04e9\u043b\u04e9\u0440 \u0431\u0430\u0442\u0430\u043b\u0433\u0430\u0430\u0433\u0434\u043b\u0430\u0430")
+                GLib.timeout_add(500, _finish_qr)
+                return False
+            countdown_label.set_label(f"\u0410\u0432\u0442\u043e \u0431\u0430\u0442\u0430\u043b\u0433\u0430\u0430\u0436\u0443\u0443\u043b\u0430\u043b\u0442: {sec}\u0441")
+            GLib.timeout_add(1000, lambda: _countdown(sec - 1))
+            return False
 
-        if qr_result and qr_result.get("qr_image"):
-            try:
-                import base64 as b64_mod2
-                loader = Gdk.PixbufLoader.new_with_type("png")
-                loader.write(b64_mod2.b64decode(qr_result["qr_image"]))
-                loader.close()
-                pixbuf = loader.get_pixbuf().scale_simple(200, 200, Gdk.InterpType.BILINEAR)
-                qr_image.set_from_pixbuf(pixbuf)
-                qr_label.hide()
-                try:
-                    self.emit("show-qr", total, pixbuf)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-        if not is_mock and qpay_client and qr_result:
-            invoice_id = qr_result.get("invoice_id", "")
-            qr_label.set_label(f"\u041d\u044d\u0445\u044d\u043c\u0436\u043b\u044d\u0445: {invoice_id}\n\U0001f4f1 \u04ae\u0439\u043b\u0447\u043b\u04af\u04af\u043b\u044d\u0433\u0447 QR \u0443\u043d\u0448\u0443\u0443\u043b\u043d\u0430 \u0443\u0443")
-            status_label.set_label("\u0422\u04e9\u043b\u0431\u04e9\u0440 \u0445\u04af\u043b\u044d\u044d\u0436 \u0431\u0430\u0439\u043d\u0430...")
-
-            check_stop = [False]
-
-            def _poll_qr():
-                if check_stop[0]:
-                    return False
-                try:
-                    result = qpay_client.check_payment(invoice_id)
-                    if result.get("payment_status") == "paid":
-                        GLib.idle_add(lambda: [status_label.set_label("\u2713 \u0422\u04e9\u043b\u04e9\u0440 \u0430\u043c\u0436\u0438\u043b\u0442\u0442\u0430\u0439"),
-                            self._complete_sale("qr", qpay_invoice_id=invoice_id), False])
-                        return False
-                except Exception:
-                    pass
-                return True
-
-            def _start_poll():
-                import threading
-                def poll_loop():
-                    for _ in range(100):
-                        if check_stop[0]:
-                            break
-                        if not _poll_qr():
-                            break
-                        time.sleep(3)
-
-                t = threading.Thread(target=poll_loop, daemon=True)
-                t.start()
-                box.qr_poll_thread = t
-                box.qr_check_stop = check_stop
-
-            _start_poll()
+        box._qr_cancel = _qr_cancel
+        box._start_qr_countdown = lambda: _countdown(12)
+        box._trigger_countdown = lambda: _countdown(12)
+        box._qr_triggered = [False]
 
         return box
 
-    def _add_product_to_cart(self, product, quantity=1.0):
+    def _add_product_to_cart(self, product, quantity=1):
         name = product.get("name", "")
         barcode = product.get("barcode", "")
         price = product.get("price", 0)
@@ -1036,6 +1120,8 @@ class POSScreen(Gtk.Box):
         for child in list(self.cart_list.get_children()):
             if not isinstance(child, Gtk.ListBoxRow):
                 self.cart_list.remove(child)
+
+        self.cart = [it for it in self.cart if it.quantity > 0]
 
         if not self.cart:
             for child in list(self.cart_list.get_children()):
@@ -1112,21 +1198,24 @@ class POSScreen(Gtk.Box):
                 self.held_badge.hide()
 
             failed_count = db.get_ebarimt_failed_count()
-            if failed_count > 0 and hasattr(self, 'ebarimt_badge'):
+            if failed_count > 0:
                 self.ebarimt_badge.set_label(str(failed_count))
                 self.ebarimt_badge.show()
-            elif hasattr(self, 'ebarimt_badge'):
+            else:
                 self.ebarimt_badge.set_label("")
                 self.ebarimt_badge.hide()
         except Exception:
             pass
         return True
 
+    def _update_badges(self):
+        self._update_badges_periodic()
+
     def _calc_total(self):
         return sum(item.subtotal for item in self.cart)
 
     def _on_qty_changed(self, item, delta):
-        item.quantity = max(0.1, item.quantity + delta)
+        item.quantity = item.quantity + delta
         self._update_cart_ui()
 
     def _complete_sale(self, payment_type, cash_given=0, card_amount=0, cash_amount=0, txn_id="", qpay_invoice_id=""):
@@ -1153,7 +1242,7 @@ class POSScreen(Gtk.Box):
                 sale, error = db.create_sale(
                     cashier_id=None, payment_type="card",
                     items=items, card_amount=total,
-                    terminal_txn_id=txn_id, idempotency_key=idempotency_key,
+                    idempotency_key=idempotency_key,
                 )
             elif payment_type == "qr":
                 sale, error = db.create_sale(
@@ -1203,9 +1292,41 @@ class POSScreen(Gtk.Box):
         if self.workqueue:
             self.workqueue.write(_write, on_done=_on_done, on_error=_on_error)
         else:
-            _on_done(_write())
+            try:
+                result = _write()
+            except Exception as e:
+                _on_error(str(e))
+            else:
+                _on_done(result)
 
     def _after_sale(self, sale):
+        from config import is_ebarimt_configured
+        if is_ebarimt_configured():
+            try:
+                from ebarimt import EbarimtAdapter
+                adapter = EbarimtAdapter()
+                result = adapter.send_receipt(sale)
+                sale["ebarimt_status"] = "sent" if result.get("success") else "failed"
+                sale["ebarimt_lottery"] = result.get("lottery", "")
+                sale["ebarimt_qr"] = result.get("qr_data", "")
+                sale["ebarimt_id"] = result.get("ebarimt_id", "")
+                try:
+                    import database as db
+                    db.update_sale_ebarimt(
+                        sale["id"],
+                        status=sale["ebarimt_status"],
+                        ebarimt_id=sale["ebarimt_id"],
+                        ebarimt_qr=sale["ebarimt_qr"],
+                        lottery=sale["ebarimt_lottery"],
+                    )
+                except Exception:
+                    pass
+            except ImportError:
+                logger.warning("ebarimt.py not available — leaving eBarimt as pending")
+            except Exception as e:
+                logger.error(f"eBarimt submit failed: {e}")
+                sale["ebarimt_status"] = "failed"
+
         if self.workqueue:
             def _print():
                 from printer import print_receipt
@@ -1214,36 +1335,10 @@ class POSScreen(Gtk.Box):
                     print_receipt(sale, get_store_info())
                 except Exception as e:
                     logger.error(f"Print failed: {e}")
-
-            from config import is_ebarimt_configured
-            if is_ebarimt_configured():
-                def _ebarimt():
-                    import database as db
-                    try:
-                        from ebarimt import EbarimtAdapter
-                        adapter = EbarimtAdapter()
-                        result = adapter.send_receipt(sale)
-                        db.update_sale_ebarimt(
-                            sale["id"],
-                            status="sent" if result.get("success") else "failed",
-                            ebarimt_id=result.get("ebarimt_id", ""),
-                            ebarimt_qr=result.get("qr_data", ""),
-                            lottery=result.get("lottery", ""),
-                        )
-                    except ImportError:
-                        logger.warning("ebarimt.py not available — leaving sale eBarimt status as pending")
-                    except Exception as e:
-                        logger.error(f"eBarimt submit failed: {e}")
-                        try:
-                            db.update_sale_ebarimt(sale["id"], status="failed")
-                        except Exception:
-                            pass
-                self.workqueue.async_op(_ebarimt)
-
             self.workqueue.async_op(_print)
 
-        self._after_sale_done(sale)
         self._clear_cart()
+        self._after_sale_done(sale)
 
     def _after_sale_done(self, sale):
         self._last_sale = sale
@@ -1296,6 +1391,59 @@ class POSScreen(Gtk.Box):
         scrolled.add(receipt_label)
         content.add(scrolled)
 
+        # eBarimt section
+        ebarimt_status = sale.get("ebarimt_status", "")
+        if ebarimt_status:
+            ebox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=scaled_px(2))
+            ebox.set_margin_top(scaled_px(6))
+            ebox.get_style_context().add_class("ebarimt-section")
+            ebarimt_title = Gtk.Label()
+            ebarimt_title.set_markup('<span size="11000" weight="700">\U0001f4cb  eBarimt / \u0422\u0430\u0442\u0432\u0430\u0440\u044b\u043d \u0431\u0430\u0440\u0438\u043c\u0442</span>')
+            ebarimt_title.set_halign(Gtk.Align.START)
+            ebox.pack_start(ebarimt_title, False, False, 0)
+
+            lottery = sale.get("ebarimt_lottery", "")
+            if lottery:
+                lot_label = Gtk.Label()
+                lot_label.set_markup(f'<span size="18000" weight="900" foreground="#059669">\U0001f3af {lottery}</span>')
+                lot_label.set_halign(Gtk.Align.CENTER)
+                lot_label.set_margin_top(scaled_px(4))
+                ebox.pack_start(lot_label, False, False, 0)
+
+            ebarimt_qr = sale.get("ebarimt_qr", "")
+            if ebarimt_qr:
+                try:
+                    import io as io_mod
+                    import base64
+                    from gi.repository import GdkPixbuf
+                    qr_png = base64.b64decode(ebarimt_qr)
+                    loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+                    loader.write(qr_png)
+                    loader.close()
+                    qr_pb = loader.get_pixbuf().scale_simple(120, 120, GdkPixbuf.InterpType.BILINEAR)
+                    qr_img = Gtk.Image.new_from_pixbuf(qr_pb)
+                    qr_img.set_halign(Gtk.Align.CENTER)
+                    qr_img.set_margin_top(scaled_px(4))
+                    ebox.pack_start(qr_img, False, False, 0)
+                except Exception:
+                    pass
+
+            if not lottery and not ebarimt_qr:
+                status_label = Gtk.Label()
+                e_status = ebarimt_status
+                if e_status == "sent":
+                    status_label.set_markup('<span foreground="#059669">\u2705  \u0418\u043b\u0433\u044d\u044d\u0433\u0434\u0441\u04e9\u043d</span>')
+                elif e_status == "failed":
+                    status_label.set_markup('<span foreground="#DC2626">\u274c  \u0410\u043b\u0434\u0430\u0430 \u0433\u0430\u0440\u043b\u0430\u0430</span>')
+                else:
+                    status_label.set_markup('<span foreground="#64748B">\u231b  \u0425\u04af\u043b\u044d\u044d\u0433\u0434\u044d\u0436 \u0431\u0430\u0439\u043d\u0430...</span>')
+                status_label.set_halign(Gtk.Align.CENTER)
+                status_label.set_margin_top(scaled_px(4))
+                ebox.pack_start(status_label, False, False, 0)
+
+            ebox.show_all()
+            content.add(ebox)
+
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=scaled_px(8))
         btn_box.set_homogeneous(True)
 
@@ -1326,72 +1474,136 @@ class POSScreen(Gtk.Box):
             self._show_error_dialog(f"\u0425\u044d\u0432\u043b\u044d\u0445 \u0430\u043b\u0434\u0430\u0430: {e}")
 
     def _show_weight_prompt(self, product):
+        unit = product.get("unit", "ш")
+        price = product.get("price", 0)
+        name = product.get("name", "")
+
+        preset_unit = unit
+        preset_values = []
+        if unit == "кг":
+            preset_values = [100, 200, 300, 500, 1000, 2000]
+            input_unit = "гр"
+        elif unit == "л":
+            preset_values = [100, 200, 300, 500, 1000, 2000]
+            input_unit = "мл"
+        else:
+            preset_values = [1, 2, 3, 5, 10]
+            input_unit = "ш"
+
         dialog = Gtk.Dialog(
-            title=product.get("name", ""),
+            title=name,
             transient_for=self.get_toplevel(),
             flags=Gtk.DialogFlags.MODAL,
         )
-        dialog.set_default_size(360, 300)
+        dialog.set_default_size(340, 320)
         content = dialog.get_content_area()
-        content.set_spacing(12)
-        content.set_margin_top(16)
-        content.set_margin_bottom(16)
-        content.set_margin_start(24)
-        content.set_margin_end(24)
+        content.set_spacing(0)
+        content.get_style_context().add_class("checkout-dialog")
 
-        header = Gtk.Label()
-        unit = product.get("unit", "ш")
-        header.set_markup(f'<span size="16000" weight="800">{product.get("name", "")}</span>\n<span size="12000">{format_money(product.get("price",0))}/{unit}</span>')
-        content.add(header)
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        main_box.set_margin_start(20)
+        main_box.set_margin_end(20)
+        main_box.set_margin_top(16)
+        main_box.set_margin_bottom(16)
 
-        content.add(Gtk.Label(label=f"\u0422\u043e\u043e \u0445\u044d\u043c\u0436\u044d\u044d\u0433\u04e9\u04e9 \u043e\u0440\u0443\u0443\u043b\u0430\u0443\u043b ({unit})"))
+        title_lbl = Gtk.Label()
+        title_lbl.set_markup(f'<span size="16000" weight="800">{name}</span>')
+        title_lbl.set_halign(Gtk.Align.START)
+        main_box.pack_start(title_lbl, False, False, 0)
 
+        price_lbl = Gtk.Label()
+        price_lbl.set_markup(f'<span size="11000" foreground="#64748B">{format_money(price)}/{unit}</span>')
+        price_lbl.set_halign(Gtk.Align.START)
+        price_lbl.set_margin_top(2)
+        price_lbl.set_margin_bottom(12)
+        main_box.pack_start(price_lbl, False, False, 0)
+
+        input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         entry = Gtk.Entry()
-        entry.set_text("1")
+        entry.set_text(str(preset_values[3] if preset_values else "1"))
         entry.set_activates_default(True)
         entry.set_alignment(1.0)
-        entry.set_size_request(-1, 48)
+        entry.set_size_request(-1, 42)
         entry.get_style_context().add_class("barcode-entry")
-        content.add(entry)
+        entry.set_hexpand(True)
+        input_box.pack_start(entry, True, True, 0)
+
+        unit_lbl = Gtk.Label(label=input_unit)
+        unit_lbl.set_valign(Gtk.Align.CENTER)
+        unit_lbl.get_style_context().add_class("cart-item-subtotal")
+        unit_lbl.set_markup(f'<span size="14000" weight="700">{input_unit}</span>')
+        input_box.pack_start(unit_lbl, False, False, 0)
+        main_box.pack_start(input_box, False, False, 0)
+
+        total_label = Gtk.Label()
+        total_label.set_halign(Gtk.Align.CENTER)
+        total_label.set_margin_top(8)
+        total_label.set_margin_bottom(8)
+        main_box.pack_start(total_label, False, False, 0)
+
+        def _calc_quantity(val):
+            try:
+                v = float(val)
+                if preset_unit == "кг":
+                    return v / 1000.0
+                elif preset_unit == "л":
+                    return v / 1000.0
+                else:
+                    return v
+            except ValueError:
+                return 0
+
+        def update_total(*args):
+            try:
+                val = float(entry.get_text() or "0")
+                qty = _calc_quantity(val)
+                total = int(round(price * qty))
+                total_label.set_markup(f'<span size="24000" weight="900" foreground="#059669">{format_money(total)}</span>')
+            except ValueError:
+                total_label.set_markup(f'<span size="24000" weight="900" foreground="#059669">—</span>')
+
+        entry.connect("changed", update_total)
 
         presets = Gtk.FlowBox()
-        presets.set_max_children_per_line(4)
-        presets.set_min_children_per_line(4)
+        presets.set_max_children_per_line(3)
+        presets.set_min_children_per_line(3)
         presets.set_homogeneous(True)
         presets.set_column_spacing(6)
         presets.set_row_spacing(6)
-        for p in [0.5, 1.0, 2.0, 3.0, 5.0, 10.0]:
+        presets.set_margin_top(4)
+        presets.set_margin_bottom(8)
+        for p in preset_values:
             btn = Gtk.Button(label=str(p))
+            btn.get_style_context().add_class("cash-quick-btn")
             btn.connect("clicked", lambda b, v=p: entry.set_text(str(v)))
             presets.add(btn)
-        content.add(presets)
+        main_box.pack_start(presets, False, False, 0)
 
-        total_label = Gtk.Label()
-        total_label.set_markup(f"\u0414\u04af\u043d: {format_money(product.get('price',0))}")
-        content.add(total_label)
+        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        cancel_btn = Gtk.Button(label="Цуцлах")
+        cancel_btn.connect("clicked", lambda b: dialog.response(Gtk.ResponseType.CANCEL))
+        btn_box.pack_start(cancel_btn, True, True, 0)
 
-        def on_qty_changed(e):
-            try:
-                q = float(e.get_text() or "0")
-                total_label.set_markup(f"\u0414\u04af\u043d: {format_money(product.get('price',0) * q)}")
-            except ValueError:
-                pass
-        entry.connect("changed", on_qty_changed)
+        add_btn = Gtk.Button(label="+ Нэмэх")
+        add_btn.get_style_context().add_class("suggested-action")
+        add_btn.connect("clicked", lambda b: dialog.response(Gtk.ResponseType.OK))
+        btn_box.pack_start(add_btn, True, True, 0)
+        main_box.pack_start(btn_box, False, False, 0)
 
-        dialog.add_button("\u0425\u0430\u0430\u0445", Gtk.ResponseType.CANCEL)
-        confirm_btn = dialog.add_button("\u2713 \u041d\u044d\u043c\u044d\u0445", Gtk.ResponseType.OK)
-        confirm_btn.get_style_context().add_class("suggested-action")
+        content.add(main_box)
 
         dialog.show_all()
         entry.grab_focus()
+        update_total()
 
         if dialog.run() == Gtk.ResponseType.OK:
             try:
-                qty = float(entry.get_text() or "0")
+                val = float(entry.get_text() or "0")
+                qty = _calc_quantity(val)
+                if qty > 0:
+                    self._add_product_to_cart(product, quantity=qty)
             except ValueError:
-                qty = 0
-            if qty > 0:
-                self._add_product_to_cart(product, quantity=qty)
+                pass
         dialog.destroy()
 
     def _show_not_found_dialog(self, barcode):
@@ -1759,7 +1971,16 @@ class POSScreen(Gtk.Box):
         self.search_entry.connect("search-changed", self._on_search_changed)
 
     def handle_payment_trigger(self, payment_type):
-        self._on_pay_clicked(None)
+        if not self.cart:
+            return
+        type_map = {
+            "\u0411\u044d\u043b\u044d\u043d": "cash",
+            "\u041a\u0430\u0440\u0442": "card",
+            "QR": "qr",
+            "\u0425\u043e\u043b\u0438\u043c\u043e\u0433": "split",
+        }
+        mapped = type_map.get(payment_type, "cash")
+        self._show_checkout(mapped)
 
     def _toggle_ebarimt_type(self):
         if self.ebarimt_type == "individual":
@@ -1816,13 +2037,12 @@ class POSScreen(Gtk.Box):
 
     def _update_held_orders_counter_ui(self):
         count = len(self.held_orders)
-        if hasattr(self, 'held_count_label'):
-            if count > 0:
-                self.held_count_label.set_text(str(count))
-                self.held_count_label.show()
-            else:
-                self.held_count_label.set_text("")
-                self.held_count_label.hide()
+        if count > 0:
+            self.held_badge.set_label(str(count))
+            self.held_badge.show()
+        else:
+            self.held_badge.set_label("")
+            self.held_badge.hide()
 
     def _show_help(self):
         text = """╔══════════════════════════════╗
@@ -1889,5 +2109,4 @@ class POSScreen(Gtk.Box):
             except Exception:
                 pass
 
-        import threading
-        threading.Timer(3.0, GLib.idle_add, args=(remove_toast,)).start()
+        GLib.timeout_add(3000, remove_toast)

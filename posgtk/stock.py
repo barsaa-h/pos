@@ -213,7 +213,12 @@ class StockScreen(Gtk.Box):
         if self.workqueue:
             self.workqueue.write(_write, on_done=_on_done, on_error=_on_error)
         else:
-            _on_done(_write())
+            try:
+                result = _write()
+            except Exception as e:
+                _on_error(str(e))
+            else:
+                _on_done(result)
 
     def _on_clear(self, btn=None):
         self._current_product = None
@@ -239,10 +244,16 @@ class StockScreen(Gtk.Box):
                     adj.get("reason", ""),
                 ])
 
+        def _on_error(err):
+            self._show_error(f"Түүх ачаалахад алдаа: {err}")
+
         if self.workqueue:
-            self.workqueue.async_op(_fetch, on_result=_populate)
+            self.workqueue.async_op(_fetch, on_result=_populate, on_error=_on_error)
         else:
-            _populate(_fetch())
+            try:
+                _populate(_fetch())
+            except Exception as e:
+                _on_error(str(e))
 
     def _show_error(self, msg):
         dialog = Gtk.MessageDialog(

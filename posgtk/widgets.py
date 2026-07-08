@@ -69,7 +69,7 @@ def make_product_card(product, on_click, cache=None):
     card = Gtk.Button()
     card.set_relief(Gtk.ReliefStyle.NONE)
     card.get_style_context().add_class("product-card")
-    card.set_size_request(scaled_px(146), scaled_px(165))
+    card.set_size_request(scaled_px(100), scaled_px(124))
 
     outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
 
@@ -120,14 +120,6 @@ def make_product_card(product, on_click, cache=None):
     stock_qty = product.get("stock_qty", 99999)
     if stock_qty == 0:
         card.get_style_context().add_class("out-of-stock")
-        stock_label = Gtk.Label(label="⛔ Дууссан")
-        stock_label.set_halign(Gtk.Align.CENTER)
-        content.pack_start(stock_label, False, False, 0)
-    elif stock_qty is not None and stock_qty < 10:
-        stock_label = Gtk.Label(label=f"✕ {stock_qty}")
-        stock_label.get_style_context().add_class("low-stock-badge")
-        stock_label.set_halign(Gtk.Align.CENTER)
-        content.pack_start(stock_label, False, False, 0)
 
     if not barcode_val:
         card.get_style_context().add_class("no-barcode-card")
@@ -141,19 +133,30 @@ def make_product_card(product, on_click, cache=None):
 
 class CartItem:
     def __init__(self, product_id, barcode, product_name, category, unit_price,
-                 quantity=1.0, discount_amount=0, unit="ш"):
+                 quantity=1, discount_amount=0, unit="ш"):
         self.product_id = product_id
         self.barcode = barcode
         self.product_name = product_name
         self.category = category
         self.unit_price = unit_price
+        self._quantity = 0
         self.quantity = quantity
         self.discount_amount = discount_amount
         self.unit = unit
 
     @property
+    def quantity(self):
+        return self._quantity
+
+    @quantity.setter
+    def quantity(self, val):
+        if isinstance(val, float) and val == int(val):
+            val = int(val)
+        self._quantity = val
+
+    @property
     def subtotal(self):
-        return round(self.quantity * self.unit_price) - self.discount_amount
+        return int(round(self.quantity * self.unit_price)) - self.discount_amount
 
     def to_dict(self):
         return {
@@ -168,37 +171,22 @@ class CartItem:
         }
 
 
-def make_cart_item_row(item, on_remove, on_qty_change, cache=None):
+def make_cart_item_row(item, on_remove, on_qty_change=None, cache=None):
     row = Gtk.ListBoxRow()
     row.get_style_context().add_class("cart-row")
 
-    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+    hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
     hbox.set_valign(Gtk.Align.CENTER)
 
-    qty_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-    qty_box.get_style_context().add_class("qty-control-group")
-
-    dec_btn = Gtk.Button(label="−")
-    dec_btn.get_style_context().add_class("qty-btn")
-    dec_btn.set_size_request(28, 28)
-    dec_btn.connect("clicked", lambda b: on_qty_change(item, -1))
-    qty_box.pack_start(dec_btn, False, False, 0)
-
-    qty_label = Gtk.Label(label=str(item.quantity))
-    qty_label.get_style_context().add_class("qty-text-label")
-    qty_box.pack_start(qty_label, False, False, 0)
-
-    inc_btn = Gtk.Button(label="+")
-    inc_btn.get_style_context().add_class("qty-btn")
-    inc_btn.set_size_request(28, 28)
-    inc_btn.connect("clicked", lambda b: on_qty_change(item, 1))
-    qty_box.pack_start(inc_btn, False, False, 0)
-
-    hbox.pack_start(qty_box, False, False, 0)
+    qty_str = str(item.quantity)
+    qty_label = Gtk.Label(label=qty_str)
+    qty_label.get_style_context().add_class("cart-qty-badge")
+    qty_label.set_valign(Gtk.Align.CENTER)
+    hbox.pack_start(qty_label, False, False, 0)
 
     icon_box = Gtk.Box()
     icon_box.get_style_context().add_class("cart-item-icon-box")
-    icon_box.set_size_request(36, 36)
+    icon_box.set_size_request(28, 28)
     icon_label = Gtk.Label(label=get_category_icon(item.category))
     icon_label.set_halign(Gtk.Align.CENTER)
     icon_label.set_valign(Gtk.Align.CENTER)
@@ -222,7 +210,7 @@ def make_cart_item_row(item, on_remove, on_qty_change, cache=None):
     name_label.set_ellipsize(Pango.EllipsizeMode.END)
     name_label.set_halign(Gtk.Align.START)
     name_label.set_xalign(0.0)
-    name_label.set_max_width_chars(16)
+    name_label.set_max_width_chars(10)
     info_box.pack_start(name_label, False, False, 0)
 
     if item.unit and item.unit != "ш":
@@ -237,7 +225,7 @@ def make_cart_item_row(item, on_remove, on_qty_change, cache=None):
     subtotal_label = Gtk.Label(label=format_money(item.subtotal))
     subtotal_label.get_style_context().add_class("cart-item-subtotal")
     subtotal_label.set_halign(Gtk.Align.END)
-    subtotal_label.set_size_request(80, -1)
+    subtotal_label.set_size_request(72, -1)
     hbox.pack_start(subtotal_label, False, False, 0)
 
     remove_btn = Gtk.Button(label="✕")

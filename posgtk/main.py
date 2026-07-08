@@ -22,16 +22,15 @@ sys.path.insert(0, PROJECT_DIR)
 logger = logging.getLogger("pos.gtk")
 
 _IMPORTED_SCREENS = set()
-_LOADING_TEXTS = {
-    "sales": "Борлуулалтын түүх",
-    "products": "Бараа",
-    "categories": "Ангилал",
-    "suppliers": "Ханган нийлүүлэгч",
-    "stock": "Агуулахын тохируулга",
-    "reports": "Тайлан",
-    "settings": "Тохиргоо",
-}
 
+_SIDEBAR_SECTIONS = [
+    ("pos",        "🏪", "Борлуулалт"),
+    ("products",   "📦", "Бараа"),
+    ("suppliers",  "🚚", "Ханган нийлүүлэгчид"),
+    ("sales",      "📋", "Борлуулалтын түүх"),
+    ("reports",    "📊", "Тайлан"),
+    ("settings",   "⚙️", "Тохиргоо"),
+]
 
 
 
@@ -54,6 +53,9 @@ class POSApplication(Gtk.Application):
         self.workqueue = None
         self.theme = None
         self.clock_label = None
+        self._sidebar_list = None
+        self._sidebar_rows = {}
+        self._sidebar_switching = False
 
     def do_startup(self):
         Gtk.Application.do_startup(self)
@@ -76,16 +78,21 @@ class POSApplication(Gtk.Application):
         self.window.set_default_size(scaled_px(1024), scaled_px(640))
 
         main_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        main_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
 
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.stack.set_transition_duration(120)
 
+        sidebar = self._build_sidebar()
+        main_hbox.pack_start(sidebar, False, True, 0)
+
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         content_box.get_style_context().add_class("content-area")
         content_box.pack_start(self.stack, True, True, 0)
-        main_vbox.pack_start(content_box, True, True, 0)
+        main_hbox.pack_start(content_box, True, True, 0)
 
+        main_vbox.pack_start(main_hbox, True, True, 0)
         self.window.add(main_vbox)
 
         try:
@@ -93,16 +100,20 @@ class POSApplication(Gtk.Application):
             self.pos_screen = POSScreen(app=self)
             self.stack.add_titled(self.pos_screen, "pos", "Борлуулалт")
         except ImportError:
-            self.stack.add_titled(_make_placeholder("pos"), "pos", "Борлуулалт")
+            from posgtk.widgets import make_loading_placeholder
+            self.stack.add_titled(make_loading_placeholder("pos"), "pos", "Борлуулалт")
 
-        for name, title in _LOADING_TEXTS.items():
-            self.stack.add_titled(_make_placeholder(title), name, title)
+        for name, icon, title in _SIDEBAR_SECTIONS:
+            if name == "pos":
+                continue
+            from posgtk.widgets import make_loading_placeholder
+            self.stack.add_titled(make_loading_placeholder(title), name, title)
 
         self.window.maximize()
-        self.window.show_all()
-        GLib.idle_add(self._show_pos)
-
         self.window.connect("realize", self._on_window_realized)
+        self.window.show_all()
+        self._select_sidebar("pos")
+        GLib.idle_add(self._show_pos)
 
     def _init_db(self):
         import database as db
@@ -143,7 +154,54 @@ class POSApplication(Gtk.Application):
             cat_css = self.cache.generate_category_css()
             self.theme.append_css(cat_css)
 
+    def _build_sidebar(self):
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        sidebar.get_style_context().add_class("sidebar-list")
+        sidebar.set_size_request(170, -1)
+
+        self._sidebar_list = Gtk.ListBox()
+        self._sidebar_list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self._sidebar_list.connect("row-selected", self._on_sidebar_row_selected)
+
+        for name, icon, title in _SIDEBAR_SECTIONS:
+            row = Gtk.ListBoxRow()
+            row.get_style_context().add_class("sidebar-row")
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            hbox.set_margin_start(16)
+            hbox.set_margin_end(16)
+            hbox.set_margin_top(10)
+            hbox.set_margin_bottom(10)
+            icon_lbl = Gtk.Label(label=icon)
+            icon_lbl.set_valign(Gtk.Align.CENTER)
+            text_lbl = Gtk.Label(label=title)
+            text_lbl.set_valign(Gtk.Align.CENTER)
+            hbox.pack_start(icon_lbl, False, False, 0)
+            hbox.pack_start(text_lbl, False, False, 0)
+            row.add(hbox)
+            row._screen_name = name
+            self._sidebar_list.add(row)
+            self._sidebar_rows[name] = row
+
+        sidebar.pack_start(self._sidebar_list, False, False, 0)
+        sidebar.pack_end(Gtk.Label(), True, True, 0)
+        return sidebar
+
+    def _on_sidebar_row_selected(self, listbox, row):
+        if row is None or self._sidebar_switching:
+            return
+        name = getattr(row, '_screen_name', None)
+        if name:
+            self._switch_screen(name)
+
+    def _select_sidebar(self, name):
+        row = self._sidebar_rows.get(name)
+        if row and self._sidebar_list:
+            self._sidebar_switching = True
+            self._sidebar_list.select_row(row)
+            self._sidebar_switching = False
+
     def _switch_screen(self, name):
+        self._select_sidebar(name)
         if name == "pos":
             self._show_pos()
             return
@@ -161,9 +219,6 @@ class POSApplication(Gtk.Application):
             elif name == "products":
                 from posgtk.products import ProductsScreen
                 scr = ProductsScreen(app=self)
-            elif name == "categories":
-                from posgtk.categories import CategoriesScreen
-                scr = CategoriesScreen(app=self)
             elif name == "suppliers":
                 from posgtk.suppliers import SuppliersScreen
                 scr = SuppliersScreen(app=self)
@@ -187,6 +242,10 @@ class POSApplication(Gtk.Application):
 
     def _show_pos(self):
         self.stack.set_visible_child_name("pos")
+        if self.cache:
+            self.cache.invalidate()
+        if self.pos_screen:
+            self.pos_screen._load_current_category()
         self._refocus_pos()
 
     def _refocus_pos(self):
@@ -298,6 +357,7 @@ class POSApplication(Gtk.Application):
 
     def _on_window_realized(self, widget):
         self._show_customer_display()
+        GLib.idle_add(self._tile_windows)
 
     def _show_customer_display(self):
         try:
@@ -313,8 +373,27 @@ class POSApplication(Gtk.Application):
                 self.pos_screen.connect("show-paying", lambda ps, total, ptype: self.customer_window.show_paying(total, ptype))
                 self.pos_screen.connect("show-qr", lambda ps, total, pixbuf: self.customer_window.show_qr(total, pixbuf))
                 self.pos_screen.connect("sale-complete", lambda ps, sale: self.customer_window.show_complete(sale))
+                self.pos_screen.connect("show-idle", lambda ps: self.customer_window.show_idle())
         except Exception as e:
             logger.warning(f"Customer display failed: {e}")
+
+    def _tile_windows(self):
+        """Position windows side-by-side on single monitor."""
+        display = Gdk.Display.get_default()
+        if not display or not self.window:
+            return
+        if display.get_n_monitors() >= 2:
+            return
+        mon = display.get_primary_monitor()
+        if not mon:
+            return
+        geo = mon.get_geometry()
+        w, h = geo.width, geo.height
+        self.window.move(0, 0)
+        self.window.resize(int(w * 0.65), h)
+        if self.customer_window:
+            self.customer_window.move(int(w * 0.65), 0)
+            self.customer_window.resize(int(w * 0.35), h)
 
     def _on_quit(self, widget):
         if self.workqueue:

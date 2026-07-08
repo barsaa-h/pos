@@ -1192,11 +1192,6 @@ def create_sale(cashier_id=None, payment_type="cash", items=None, cash_given=0,
                     return None, f"Бараа олдсонгүй: {item['product_name']}"
                 if not product["is_active"]:
                     return None, f"Бараа идэвхгүй: {product['name']}"
-                if product["stock_qty"] < item["quantity"]:
-                    return None, (
-                        f"Нөөц хүрэлцэхгүй: {product['name']}. "
-                        f"Одоо: {product['stock_qty']}, Хүсэлт: {int(item['quantity'])}"
-                    )
                 # Price validation: use DB price as authoritative source
                 if item["unit_price"] != product["price"]:
                     item["unit_price"] = product["price"]

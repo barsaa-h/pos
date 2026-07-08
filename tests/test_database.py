@@ -98,7 +98,8 @@ def test_create_sale_and_get_sale(db, request):
     assert len(fetched["items"]) == 2
 
 
-def test_create_sale_insufficient_stock(db, request):
+def test_create_sale_with_low_stock_should_succeed(db, request):
+    """Stock validation removed — sale should succeed even with low stock."""
     from database import create_product, create_sale
     bc = f"cis_{request.node.name}"
     create_product(bc, "Бага нөөц", 1000, "Бусад", 1, "ш")
@@ -108,11 +109,10 @@ def test_create_sale_insufficient_stock(db, request):
         items=[
             {"product_id": p["id"], "product_name": "Бага нөөц", "barcode": bc, "quantity": 5, "unit_price": 1000, "subtotal": 5000},
         ],
-        payment_type="cash",
+        payment_type="cash", cash_given=5000,
     )
-    assert error is not None
-    assert "хүрэлцэхгүй" in error
-    assert result is None
+    assert error is None
+    assert result is not None
 
 
 def test_create_sale_inactive_product(db, request):

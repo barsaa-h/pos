@@ -1,5 +1,6 @@
 """
-posgtk/reports.py — Sales and profit reports with stat cards, quick filters, top products.
+posgtk/reports.py — Sales and profit reports with modern card layout, Niit filter,
+separate qty/amount columns, and top products table.
 """
 import logging
 from datetime import datetime, timedelta
@@ -47,6 +48,7 @@ class ReportsScreen(Gtk.Box):
             ("📅 Өнөөдөр", self._qf_today),
             ("📅 Энэ долоо хоног", self._qf_week),
             ("📅 Энэ сар", self._qf_month),
+            ("📅 Бүх хугацаа", self._qf_all),
         ]:
             btn = Gtk.Button(label=label)
             btn.get_style_context().add_class("quick-filter-btn")
@@ -107,6 +109,18 @@ class ReportsScreen(Gtk.Box):
         self.date_to_entry.set_text(_today_str())
         self._load_data()
 
+    def _qf_all(self, btn):
+        self.date_from_entry.set_text("")
+        self.date_to_entry.set_text("")
+        self._load_data()
+
+    def _make_group_label(self, text):
+        lbl = Gtk.Label()
+        lbl.set_markup(f"<b>{text}</b>")
+        lbl.set_halign(Gtk.Align.START)
+        lbl.set_margin_top(8)
+        return lbl
+
     def _load_data(self, *args):
         for child in self.content_box.get_children():
             self.content_box.remove(child)
@@ -123,27 +137,36 @@ class ReportsScreen(Gtk.Box):
             self.content_box.show_all()
             return
 
-        stat_cards = Gtk.FlowBox()
-        stat_cards.set_selection_mode(Gtk.SelectionMode.NONE)
-        stat_cards.set_column_spacing(12)
-        stat_cards.set_row_spacing(12)
-
-        cards_data = [
-            ("🧾", format_money(summary.get("total_sales", 0)), "Нийт борлуулалт"),
-            ("💰", format_money(summary.get("total_profit", 0)), "Цэвэр орлого"),
-            ("💵", format_money(summary.get("cash_total", 0)), "Бэлэн"),
-            ("💳", format_money(summary.get("card_total", 0)), "Карт"),
-            ("🔀", format_money(summary.get("split_total", 0)), "Холимог"),
-            ("📈", format_money(summary.get("total_profit", 0)), "Цэвэр ашиг"),
-            ("📦", format_money(summary.get("total_cost", 0)), "Нийт өртөг"),
-        ]
+        total_sales_amount = summary.get("total_sales", 0)
+        total_profit = summary.get("total_profit", 0)
+        cash_total = summary.get("cash_total", 0)
+        card_total = summary.get("card_total", 0)
+        split_total = summary.get("split_total", 0)
+        total_cost = summary.get("total_cost", 0)
         return_total = summary.get("return_total", 0)
-        if return_total:
-            cards_data.append(("↩️", format_money(return_total), "Буцаалт"))
+        avg_sale = summary.get("avg_sale", 0)
+        avg_items = summary.get("avg_items_per_sale", 0)
+        total_count = summary.get("total_count", 0)
+        total_qty = summary.get("total_qty", 0)
 
-        for icon, value, label in cards_data:
-            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        stat_grid = Gtk.Grid()
+        stat_grid.set_column_spacing(10)
+        stat_grid.set_row_spacing(10)
+
+        stat_data = []
+        stat_data.append(("🧾", format_money(total_sales_amount), "Нийт борлуулалт"))
+        stat_data.append(("💰", format_money(total_profit), "Цэвэр ашиг"))
+        stat_data.append(("💵", format_money(cash_total), "Бэлэн"))
+        stat_data.append(("💳", format_money(card_total), "Карт"))
+        stat_data.append(("🔀", format_money(split_total), "Холимог"))
+
+        if return_total:
+            stat_data.append(("↩️", format_money(return_total), "Буцаалт"))
+
+        for i, (icon, value, label) in enumerate(stat_data):
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             card.get_style_context().add_class("stat-card")
+            card.set_size_request(160, -1)
             icon_lbl = Gtk.Label(label=icon)
             icon_lbl.get_style_context().add_class("stat-card-icon")
             card.pack_start(icon_lbl, False, False, 0)
@@ -153,72 +176,54 @@ class ReportsScreen(Gtk.Box):
             lab_lbl = Gtk.Label(label=label)
             lab_lbl.get_style_context().add_class("stat-label")
             card.pack_start(lab_lbl, False, False, 0)
-            stat_cards.add(card)
+            stat_grid.attach(card, i % 6, i // 6, 1, 1)
 
-        self.content_box.add(stat_cards)
+        self.content_box.add(stat_grid)
 
-        avg_txn = summary.get("avg_sale", 0)
-        avg_items = summary.get("avg_items_per_sale", 0)
-        if avg_txn or avg_items:
-            insight_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-            insight_box.set_margin_top(8)
-            if avg_txn:
-                card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-                card.get_style_context().add_class("insight-card")
-                val = Gtk.Label(label=str(format_money(avg_txn)))
-                val.get_style_context().add_class("value")
-                card.pack_start(val, False, False, 0)
-                lab = Gtk.Label(label="Дундаж гүйлгээний дүн")
-                lab.get_style_context().add_class("label")
-                card.pack_start(lab, False, False, 0)
-                insight_box.pack_start(card, True, True, 0)
+        if total_qty or total_count:
+            qty_label = self._make_group_label("📊 Тоо ширхэг")
+            self.content_box.add(qty_label)
+
+            qty_grid = Gtk.Grid()
+            qty_grid.set_column_spacing(10)
+            qty_grid.set_row_spacing(10)
+            qty_grid.set_margin_top(4)
+
+            qty_cards = []
+            if total_qty:
+                qty_cards.append(("📦", str(total_qty), "Нийт зарагдсан тоо"))
+            if total_count:
+                qty_cards.append(("🧾", str(total_count), "Нийт гүйлгээ"))
             if avg_items:
-                card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-                card.get_style_context().add_class("insight-card")
-                val = Gtk.Label(label=str(avg_items))
-                val.get_style_context().add_class("value")
-                card.pack_start(val, False, False, 0)
-                lab = Gtk.Label(label="Дундаж барааны тоо")
-                lab.get_style_context().add_class("label")
-                card.pack_start(lab, False, False, 0)
-                insight_box.pack_start(card, True, True, 0)
-            self.content_box.add(insight_box)
+                qty_cards.append(("📊", str(avg_items), "Дундаж бараа/гүйлгээ"))
+            if avg_sale:
+                qty_cards.append(("💰", format_money(avg_sale), "Дундаж дүн/гүйлгээ"))
 
-        sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-        sep.set_margin_top(8)
-        sep.set_margin_bottom(8)
-        self.content_box.add(sep)
+            for i, (icon, value, label) in enumerate(qty_cards):
+                card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+                card.get_style_context().add_class("stat-card")
+                card.set_size_request(160, -1)
+                icon_lbl = Gtk.Label(label=icon)
+                icon_lbl.get_style_context().add_class("stat-card-icon")
+                card.pack_start(icon_lbl, False, False, 0)
+                val_lbl = Gtk.Label(label=str(value))
+                val_lbl.get_style_context().add_class("stat-value")
+                card.pack_start(val_lbl, False, False, 0)
+                lab_lbl = Gtk.Label(label=label)
+                lab_lbl.get_style_context().add_class("stat-label")
+                card.pack_start(lab_lbl, False, False, 0)
+                qty_grid.attach(card, i % 4, i // 4, 1, 1)
 
-        payment_label = Gtk.Label()
-        payment_label.set_markup("<b>Төлбөрийн төрлөөр:</b>")
-        payment_label.set_halign(Gtk.Align.START)
-        self.content_box.add(payment_label)
-
-        payments = report.get("payments", [])
-        if payments:
-            for p in payments:
-                self.content_box.add(Gtk.Label(
-                    label=f"  {p.get('payment_type', '')}: {format_money(p.get('total_amount', 0))} ({p.get('count', 0)} удаа)",
-                    xalign=0,
-                ))
-        else:
-            no_data = Gtk.Label()
-            no_data.set_markup('<span size="12000">Тайлангийн мэдээлэл байхгүй</span>')
-            no_data.set_halign(Gtk.Align.START)
-            no_data.set_margin_top(12)
-            no_data.get_style_context().add_class("text-muted")
-            self.content_box.add(no_data)
+            self.content_box.add(qty_grid)
 
         top_products = report.get("top_products", [])
         if top_products:
-            sep2 = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
-            sep2.set_margin_top(12)
-            sep2.set_margin_bottom(8)
-            self.content_box.add(sep2)
+            sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+            sep.set_margin_top(12)
+            sep.set_margin_bottom(8)
+            self.content_box.add(sep)
 
-            title = Gtk.Label()
-            title.set_markup("<b>🏆 Хамгийн их зарагдсан бараа</b>")
-            title.set_halign(Gtk.Align.START)
+            title = self._make_group_label("🏆 Хамгийн их зарагдсан бараа")
             self.content_box.add(title)
 
             list_box = Gtk.ListBox()
@@ -227,10 +232,18 @@ class ReportsScreen(Gtk.Box):
             header_row = Gtk.ListBoxRow()
             header_row.get_style_context().add_class("data-row")
             hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            for text, width in [("Бараа", 0), ("Тоо", 80), ("Орлого", 120)]:
-                lbl = Gtk.Label(label=text, xalign=1 if width else 0, hexpand=True if width == 0 else False)
+
+            header_data = [
+                ("", 32, 0),
+                ("Бараа", 0, 0),
+                ("Тоо (ширхэг)", 120, 1),
+                ("Орлого (₮)", 140, 1),
+            ]
+            for text, width, xalign in header_data:
+                lbl = Gtk.Label(label=text, xalign=xalign)
+                lbl.set_size_request(width, -1) if width else lbl.set_hexpand(True)
                 lbl.get_style_context().add_class("text-muted")
-                hbox.pack_start(lbl, True, True, 0)
+                hbox.pack_start(lbl, False if width else True, False, 0)
             header_row.add(hbox)
             list_box.add(header_row)
 
@@ -239,18 +252,36 @@ class ReportsScreen(Gtk.Box):
                 row = Gtk.ListBoxRow()
                 row.get_style_context().add_class("data-row")
                 hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+
                 cat = p.get("category", "Бусад")
                 icon = CAT_ICONS.get(cat, "📦")
-                name_lbl = Gtk.Label(label=f"{icon} {p.get('product_name', '')}", xalign=0, hexpand=True)
+                icon_lbl = Gtk.Label(label=icon, xalign=0)
+                icon_lbl.set_size_request(32, -1)
+                hbox.pack_start(icon_lbl, False, False, 0)
+
+                name_lbl = Gtk.Label(label=p.get("product_name", ""), xalign=0, hexpand=True)
                 hbox.pack_start(name_lbl, True, True, 0)
+
                 qty_lbl = Gtk.Label(label=str(p.get("total_qty", 0)), xalign=1)
+                qty_lbl.set_size_request(120, -1)
                 hbox.pack_start(qty_lbl, False, False, 0)
+
                 rev_lbl = Gtk.Label(label=f"{format_money(p.get('total_revenue', 0))} ₮", xalign=1)
+                rev_lbl.set_size_request(140, -1)
                 rev_lbl.get_style_context().add_class("text-muted")
                 hbox.pack_start(rev_lbl, False, False, 0)
+
                 row.add(hbox)
                 list_box.add(row)
 
             self.content_box.add(list_box)
+
+        if not total_sales_amount and not top_products:
+            no_data = Gtk.Label()
+            no_data.set_markup('<span size="12000">Тайлангийн мэдээлэл байхгүй</span>')
+            no_data.set_halign(Gtk.Align.START)
+            no_data.set_margin_top(12)
+            no_data.get_style_context().add_class("text-muted")
+            self.content_box.add(no_data)
 
         self.content_box.show_all()

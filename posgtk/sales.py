@@ -1,5 +1,5 @@
 """
-posgtk/sales.py — Sales history with pagination, quick filters, and detail view.
+posgtk/sales.py — Sales history with pagination, quick filters, modern ListBox layout.
 """
 import logging
 import json
@@ -30,6 +30,36 @@ def _week_start_str():
 def _month_start_str():
     today = datetime.now()
     return today.replace(day=1).strftime("%Y-%m-%d")
+
+
+_PAYMENT_LABELS = {
+    "cash": "💵 Бэлэн",
+    "card": "💳 Карт",
+    "qr": "📱 QR",
+    "split": "🔀 Холимог",
+    "return": "↩️ Буцаалт",
+}
+
+_PAYMENT_CLASSES = {
+    "cash": "pay-cash",
+    "card": "pay-card",
+    "qr": "pay-qr",
+    "split": "pay-split",
+    "return": "pay-return",
+}
+
+_EBARIMT_CLASSES = {
+    "sent": "ebarimt-sent",
+    "pending": "ebarimt-pending",
+    "failed": "ebarimt-failed",
+    "none": "ebarimt-none",
+}
+
+
+def payment_badge(payment_type):
+    label = _PAYMENT_LABELS.get(payment_type, payment_type)
+    cls = _PAYMENT_CLASSES.get(payment_type, "")
+    return f'<span class="payment-badge {cls}">{label}</span>'
 
 
 class SalesScreen(Gtk.Box):
@@ -99,27 +129,11 @@ class SalesScreen(Gtk.Box):
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
 
-        self.store = Gtk.ListStore(int, str, str, str, str, str, int)
-        self.tree = Gtk.TreeView(model=self.store)
-        self.tree.get_style_context().add_class("data-table")
-        self.tree.get_style_context().add_class("treeview-table")
-
-        cols = [
-            ("ID", 0, 60), ("Огноо", 1, 140), ("Төлбөр", 2, 80),
-            ("Нийт", 3, 100), ("Буцаалт", 4, 60),
-            ("eBarimt", 5, 70), ("sale_id", 6, 0),
-        ]
-        for title, col_id, width in cols:
-            renderer = Gtk.CellRendererText()
-            col = Gtk.TreeViewColumn(title, renderer, text=col_id)
-            col.set_resizable(True)
-            col.set_min_width(width)
-            if width == 0:
-                col.set_visible(False)
-            self.tree.append_column(col)
-
-        self.tree.connect("row-activated", self._on_row_activated)
-        scrolled.add(self.tree)
+        self.list_box = Gtk.ListBox()
+        self.list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.list_box.connect("row-activated", self._on_row_activated)
+        self.list_box.get_style_context().add_class("sales-list")
+        scrolled.add(self.list_box)
         panel.pack_start(scrolled, True, True, 0)
         self.pack_start(panel, True, True, 0)
 
@@ -151,12 +165,15 @@ class SalesScreen(Gtk.Box):
         GLib.idle_add(self._load_data)
 
     def _load_data(self, *args):
+        for child in self.list_box.get_children():
+            self.list_box.remove(child)
+
         date_from = self._date_from or None
         date_to = self._date_to or None
         page = self._page
         per_page = self._per_page
 
-        def fetch_background():
+        try:
             import database as db
             sales = db.get_sales_list(
                 date_from=date_from, date_to=date_to,
@@ -164,45 +181,117 @@ class SalesScreen(Gtk.Box):
             )
             total_count = db.get_sales_count(date_from=date_from, date_to=date_to)
             total_pages = max(1, (total_count + per_page - 1) // per_page)
-            return sales, total_count, total_pages
+        except Exception as e:
+            logger.error(f"Sales load failed: {e}")
+            err_lbl = Gtk.Label(label=f"Алдаа: {e}")
+            err_lbl.set_halign(Gtk.Align.CENTER)
+            err_lbl.set_margin_top(24)
+            err_lbl.get_style_context().add_class("text-muted")
+            self.list_box.add(err_lbl)
+            self.list_box.show_all()
+            return
 
-        def on_fetch_complete(result):
-            sales, total_count, total_pages = result
-            self.store.clear()
-            for s in sales:
-                is_return = s.get("payment_type") == "return"
-                self.store.append([
-                    s.get("id", 0),
-                    s.get("created_at", ""),
-                    s.get("payment_type", ""),
-                    format_money(s.get("total", 0)),
-                    "Буцаасан" if is_return else "",
-                    s.get("ebarimt_status", ""),
-                    s.get("id", 0),
-                ])
-            self.page_label.set_label(f"Хуудас {page}/{total_pages}  (Нийт: {total_count})")
-            self.prev_btn.set_sensitive(page > 1)
-            self.next_btn.set_sensitive(page < total_pages)
+        header_row = Gtk.ListBoxRow()
+        header_row.get_style_context().add_class("sales-header-row")
+        header_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header_hbox.set_margin_start(12)
+        header_hbox.set_margin_end(12)
+        header_hbox.set_margin_top(8)
+        header_hbox.set_margin_bottom(8)
 
-        def on_fetch_error(error_msg):
-            logger.error(f"Background sales load failed: {error_msg}")
+        for text, width, xalign in [
+            ("#", 50, 0),
+            ("Огноо", 150, 0),
+            ("Төлбөр", 110, 0),
+            ("Нийт", 110, 1),
+            ("eBarimt", 90, 0),
+        ]:
+            lbl = Gtk.Label(label=text, xalign=xalign)
+            if width:
+                lbl.set_size_request(width, -1)
+            else:
+                lbl.set_hexpand(True)
+            lbl.get_style_context().add_class("text-muted")
+            header_hbox.pack_start(lbl, False if width else True, False, 0)
 
-        if self.app and self.app.workqueue:
-            self.app.workqueue.async_op(fetch_background, on_result=on_fetch_complete, on_error=on_fetch_error)
-        else:
-            try:
-                on_fetch_complete(fetch_background())
-            except Exception as e:
-                on_fetch_error(str(e))
+        header_row.add(header_hbox)
+        self.list_box.add(header_row)
+
+        for s in sales:
+            row = Gtk.ListBoxRow()
+            row.get_style_context().add_class("sales-row")
+            row._sale_id = s.get("id")
+
+            is_return = s.get("payment_type") == "return"
+            if is_return:
+                row.get_style_context().add_class("sales-row-return")
+
+            hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            hbox.set_margin_start(12)
+            hbox.set_margin_end(12)
+            hbox.set_margin_top(10)
+            hbox.set_margin_bottom(10)
+
+            id_lbl = Gtk.Label(label=str(s.get("id", "")), xalign=0)
+            id_lbl.set_size_request(50, -1)
+            id_lbl.get_style_context().add_class("sale-id")
+            hbox.pack_start(id_lbl, False, False, 0)
+
+            date_lbl = Gtk.Label(label=s.get("created_at", ""), xalign=0)
+            date_lbl.set_size_request(150, -1)
+            date_lbl.get_style_context().add_class("sale-date")
+            hbox.pack_start(date_lbl, False, False, 0)
+
+            pt = s.get("payment_type", "")
+            pt_lbl = Gtk.Label(label=_PAYMENT_LABELS.get(pt, pt), xalign=0)
+            pt_lbl.set_size_request(110, -1)
+            pt_cls = _PAYMENT_CLASSES.get(pt, "")
+            if pt_cls:
+                pt_lbl.get_style_context().add_class(pt_cls)
+            hbox.pack_start(pt_lbl, False, False, 0)
+
+            total = s.get("total", 0)
+            total_text = format_money(total)
+            if is_return:
+                total_text = f"-{total_text}"
+            total_lbl = Gtk.Label(label=total_text, xalign=1)
+            total_lbl.set_size_request(110, -1)
+            total_lbl.get_style_context().add_class("sale-total")
+            if is_return:
+                total_lbl.get_style_context().add_class("sale-total-return")
+            hbox.pack_start(total_lbl, False, False, 0)
+
+            ebarimt = s.get("ebarimt_status", "")
+            ebarimt_lbl = Gtk.Label(label=ebarimt or "-", xalign=0)
+            ebarimt_lbl.set_size_request(90, -1)
+            ebarimt_cls = _EBARIMT_CLASSES.get(ebarimt, "ebarimt-none")
+            ebarimt_lbl.get_style_context().add_class(ebarimt_cls)
+            hbox.pack_start(ebarimt_lbl, False, False, 0)
+
+            row.add(hbox)
+            self.list_box.add(row)
+
+        if not sales:
+            empty_lbl = Gtk.Label(label="Борлуулалт олдсонгүй.")
+            empty_lbl.set_halign(Gtk.Align.CENTER)
+            empty_lbl.set_margin_top(32)
+            empty_lbl.get_style_context().add_class("text-muted")
+            self.list_box.add(empty_lbl)
+
+        self.page_label.set_label(f"Хуудас {page}/{total_pages}  (Нийт: {total_count})")
+        self.prev_btn.set_sensitive(page > 1)
+        self.next_btn.set_sensitive(page < total_pages)
+
+        self.list_box.show_all()
 
     def _change_page(self, delta):
         self._page = max(1, self._page + delta)
         self._load_data()
 
-    def _on_row_activated(self, tree, path, col):
-        it = self.store.get_iter(path)
-        sale_id = self.store.get_value(it, 6)
-        self._show_detail(sale_id)
+    def _on_row_activated(self, listbox, row):
+        sale_id = getattr(row, '_sale_id', None)
+        if sale_id:
+            self._show_detail(sale_id)
 
     def _show_detail(self, sale_id):
         try:
@@ -242,7 +331,7 @@ class SalesScreen(Gtk.Box):
         info_lines = [
             ("ID", str(sale.get('id', ''))),
             ("Огноо", sale.get('created_at', '')),
-            ("Төлбөр", sale.get('payment_type', '')),
+            ("Төлбөр", _PAYMENT_LABELS.get(sale.get('payment_type', ''), sale.get('payment_type', ''))),
         ]
         txn_id = sale.get("terminal_txn_id", "")
         if txn_id:
@@ -357,14 +446,16 @@ class SalesScreen(Gtk.Box):
                 self._show_return_error("Буцаалт амжилтгүй")
                 return
             detail_dialog.destroy()
+            self._load_data()
             if self.app and hasattr(self.app, 'pos_screen'):
                 self.app.pos_screen._show_toast(f"#{sale_id} буцаалт амжилттай", "success")
                 try:
                     from printer import print_receipt
                     from config import get_store_info
                     print_receipt(result, get_store_info())
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"Return print failed: {e}")
+                    self.app.pos_screen._show_toast(f"⚠️ Хэвлэх алдаа: {e}", "warning")
 
         def _on_error(err):
             self._show_return_error(f"Алдаа: {err}")
